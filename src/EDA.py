@@ -193,9 +193,9 @@ def plot_top_bottom_makes(df):
     plt.tight_layout()
     plt.show()
 
-# -------------------
+# ---------------
 # 🏁 MAIN FUNCTION
-# -------------------
+# ---------------
 
 def main():
     # Define path
