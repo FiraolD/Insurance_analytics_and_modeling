@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+Data
 /MachineLearningRating_v3.txt
 # Distribution / packaging
 *.txt
