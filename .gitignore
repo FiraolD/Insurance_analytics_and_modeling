@@ -5,8 +5,10 @@ __pycache__/
 
 # C extensions
 *.so
-
+/MachineLearningRating_v3.txt
 # Distribution / packaging
+*.txt
+*.csv
 .Python
 build/
 develop-eggs/
