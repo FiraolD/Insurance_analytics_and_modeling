@@ -23,7 +23,7 @@ DATA_PATH = "Data/MachineLearningRating_v3.txt"
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
-REPORT_FILE = "Reports/task4/model_report.md"
+REPORT_FILE = "Reports/task4/Claim_severity.md
 
 os.makedirs(PLOT_DIR, exist_ok=True)
 

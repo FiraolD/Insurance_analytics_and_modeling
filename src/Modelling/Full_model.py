@@ -167,7 +167,7 @@ def train_severity_model(X_train, X_test, y_train, y_test, feature_names):
         plot_predictions(y_test, y_pred, name, "claim_severity", PLOT_DIR)
 
     best_model = max(results, key=lambda x: x['r2'])
-    interpret_with_shap(best_model['model'], X_test, feature_names, "claim_severity")
+    interpret_model'], X_test, feature_names, "claim_severity")
 
     return results
 
@@ -266,22 +266,28 @@ def plot_predictions(y_true, y_pred, model_name, prefix, plot_dir):
 # -----------------------------
 # 🧠 Interpret Best Model Using SHAP
 # -----------------------------
-def interpret_with_shap(model, X_test, feature_names, context):
+def interpret_model(model_info, X_test, feature_names, context):
     """Interpret model using SHAP values."""
     print(f"\n🧠 Interpreting model ({context})...")
 
-    explainer = shap.Explainer(model, X_test)
-    shap_values = explainer(X_test)
+    # Check if X_test is sparse and convert to dense
+    try:
+        X_test_dense = X_test.toarray()
+    except:
+        X_test_dense = X_test  # Already dense
+
+    explainer = shap.Explainer(model_info["model"], X_test_dense)
+    shap_values = explainer(X_test_dense)
 
     # Summary plot
     plt.figure(figsize=(10, 6))
-    shap.summary_plot(shap_values, X_test, feature_names=feature_names, show=False)
+    shap.summary_plot(shap_values, X_test_dense, feature_names=feature_names, show=False)
     plt.savefig(os.path.join(PLOT_DIR, f"shap_summary_{context}.png"), bbox_inches='tight')
     plt.close()
 
     # Bar plot of feature importance
     plt.figure(figsize=(10, 6))
-    shap.summary_plot(shap_values, X_test, feature_names=feature_names, plot_type="bar", show=False)
+    shap.summary_plot(shap_values, X_test_dense, feature_names=feature_names, plot_type="bar", show=False)
     plt.savefig(os.path.join(PLOT_DIR, f"shap_bar_{context}.png"), bbox_inches='tight')
     plt.close()
 

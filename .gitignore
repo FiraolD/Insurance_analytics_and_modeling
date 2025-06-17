@@ -11,6 +11,21 @@ Visualizations
 #Data
 #/MachineLearningRating_v3.txt
 # Distribution / packaging
+/data/
+/Data/
+*.txt
+*.csv
+.dvc/cache/
+.dvc/tmp/
+Reports/
+__pycache__
+*.pyc
+*.dvc
+.vscode/
+.idea/
+.env/
+.venv/
+venv/
 *.txt
 *.csv
 .Python
