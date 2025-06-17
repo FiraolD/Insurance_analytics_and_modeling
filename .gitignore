@@ -17,7 +17,6 @@ Visualizations
 *.csv
 .dvc/cache/
 .dvc/tmp/
-Reports/
 __pycache__
 *.pyc
 *.dvc
