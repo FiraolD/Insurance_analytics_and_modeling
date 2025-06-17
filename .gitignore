@@ -7,8 +7,7 @@ requirements.txt
 # C extensions
 *.so
 Visualizations
-Reports
-*.md
+#.md
 #Data
 #/MachineLearningRating_v3.txt
 # Distribution / packaging
