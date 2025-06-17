@@ -8,6 +8,7 @@ requirements.txt
 *.so
 Visualizations
 Reports
+*.md
 #Data
 #/MachineLearningRating_v3.txt
 # Distribution / packaging
