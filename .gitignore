@@ -2,11 +2,13 @@
 __pycache__/
 *.py[cod]
 *$py.class
+requirements.txt
 
 # C extensions
 *.so
 Visualizations
 Reports
+*.md
 #Data
 #/MachineLearningRating_v3.txt
 # Distribution / packaging
