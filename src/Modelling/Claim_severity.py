@@ -218,13 +218,12 @@ def main():
     # Prepare features
     X_train, X_test, y_train, y_test, feature_names = prepare_features(df)
 
-    # Convert sparse arrays if needed
+    # Keep SHAP input bounded; densifying the full one-hot matrix can exhaust memory.
+    X_test_sample = X_test[:500]
     try:
-        X_train_dense = X_train.toarray()
-        X_test_dense = X_test.toarray()
-    except:
-        X_train_dense = X_train
-        X_test_dense = X_test
+        X_test_dense = X_test_sample.toarray()
+    except AttributeError:
+        X_test_dense = X_test_sample
 
     # DataFrame for SHAP interpretation
     X_test_df = pd.DataFrame(X_test_dense, columns=feature_names)
