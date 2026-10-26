@@ -60,10 +60,6 @@ def clean_data(df):
 
     # Do not impute numeric columns here: target labels must remain untouched.
 
-    # Create derived features
-    if 'RegistrationYear' in df.columns:
-        df['VehicleAge'] = 2025 - df['RegistrationYear']
-
     print("[OK] Data cleaned and prepared.")
     return df
 
