@@ -18,8 +18,6 @@ import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-os.makedirs(PLOT_DIR, exist_ok=True)
-
 # -----------------------------
 # 🔧 Configuration
 # -----------------------------
@@ -28,6 +26,8 @@ SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
 REPORT_FILE = "Reports/task4/premium_prediction_report.md"
+
+os.makedirs(PLOT_DIR, exist_ok=True)
 
 
 # -----------------------------
