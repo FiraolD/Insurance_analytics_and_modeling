@@ -332,18 +332,12 @@ def generate_final_report(sev_results, pre_results, cla_results):
 
         f.write("\n## 🧠 Top Features Influencing Predictions\n")
         f.write("From SHAP analysis:\n")
-        f.write("  - Vehicle age\n")
-        f.write("  - Province (e.g., Gauteng)\n")
-        f.write("  - Make (e.g., Toyota vs Mercedes-Benz)\n")
-        f.write("  - Cubic capacity\n")
-        f.write("  - Kilowatts\n")
+        f.write("  - See generated SHAP plots for task-specific attributions; these are not causal effects.\n")
 
         f.write("\n## 📌 Business Recommendations\n")
-        f.write("- Use **XGBoost** for claim severity prediction due to superior accuracy.\n")
-        f.write("- Adjust premiums for older vehicles and high-risk provinces like Gauteng.\n")
-        f.write("- Consider vehicle power and engine size when setting policy terms.\n")
-        f.write("- Build a **risk-based pricing engine** combining predicted claim probability and severity.\n")
-        f.write("- Future work: Add binary classification to predict claim occurrence.\n")
+        f.write("- Treat model comparisons as exploratory until reproduced with verified targets and appropriate holdout metrics.\n")
+        f.write("- Historical premium prediction is not an actuarial indication of adequate premium.\n")
+        f.write("- Any expected-cost estimate must align claim frequency, conditional severity, exposure, currency, and observation unit.\n")
 
     print(f"[OK] Report saved to {REPORT_FILE}")
 
