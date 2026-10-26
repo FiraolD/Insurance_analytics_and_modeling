@@ -45,6 +45,11 @@ def clean_data(df):
     """Clean data by handling missing values and creating new features."""
     print("[INFO] Cleaning data...")
 
+    # Normalize source numeric columns without imputing outcomes.
+    for column in ('TotalPremium', 'TotalClaims'):
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors='coerce')
+
     # Derive outcomes before any feature cleaning; never impute the target.
     df = add_claim_targets(df, missing_claims="unknown")
 
@@ -54,19 +59,8 @@ def clean_data(df):
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
 
-    # Calculate Loss Ratio
-    df['LossRatio'] = np.where(
-        df['TotalPremium'] > 0,
-        df['TotalClaims'] / df['TotalPremium'],
-        np.nan
-    )
-
-    # Binary claim indicator
-    df['HadClaim'] = df['TotalClaims'].notnull().astype(int)
-
-    # Create derived features
-    if 'RegistrationYear' in df.columns:
-        df['VehicleAge'] = 2025 - df['RegistrationYear']
+    # Do not create a second claim label from raw missingness. The canonical
+    # nullable outcome is HadClaim, produced by add_claim_targets.
 
     print("[OK] Data cleaned and prepared.")
     return df
