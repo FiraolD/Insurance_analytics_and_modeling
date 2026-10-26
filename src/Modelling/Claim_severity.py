@@ -21,7 +21,8 @@ from insurance_analytics.targets import add_claim_targets
 # -----------------------------
 # 🔧 Configuration
 # -----------------------------
-DATA_PATH = "Data/MachineLearningRating_v3.txt"
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
+MISSING_CLAIMS_POLICY = os.getenv("INSURANCE_MISSING_CLAIMS_POLICY", "unknown")
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
@@ -51,11 +52,10 @@ def clean_data(df):
             df[column] = pd.to_numeric(df[column], errors='coerce')
 
     # Derive outcomes before any feature cleaning; never impute the target.
-    df = add_claim_targets(df, missing_claims="unknown")
+    df = add_claim_targets(df, missing_claims=MISSING_CLAIMS_POLICY)
 
-    # Preserve signed financial values for data-quality review.
-    # Fill categorical feature columns; numeric feature imputation is handled
-    # inside the train-only preprocessing pipeline in a subsequent refactor.
+    # Preserve signed financial values. Learned feature imputation is fitted
+    # on training data only in the preprocessing pipeline.
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
 
