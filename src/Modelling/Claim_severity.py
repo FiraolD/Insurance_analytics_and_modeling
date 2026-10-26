@@ -186,16 +186,11 @@ def generate_report(results):
             f.write(f"| {res['model']} | {res['RMSE']:.2f} | {res['R²']:.4f} |\n")
 
         f.write("\n## 🧠 Key Insights from SHAP Analysis\n")
-        f.write("- Top 5 features influencing predicted claim amount:\n")
-        f.write("  - Vehicle age\n")
-        f.write("  - Province (e.g., Gauteng)\n")
-        f.write("  - Make (e.g., Toyota vs Mercedes-Benz)\n")
-        f.write("  - Cubic capacity\n")
-        f.write("  - Kilowatts\n")
+        f.write("- Review the generated SHAP plots for model-specific feature attributions. These describe model behaviour and do not establish causality.\n")
 
         f.write("\n## 📌 Business Recommendations\n")
         f.write("- Use **XGBoost** for risk-based premium pricing due to superior accuracy.\n")
-        f.write("- Adjust premiums for older vehicles and high-risk provinces like Gauteng.\n")
+        f.write("- Treat all segment-level findings as hypotheses until reproduced with validated labels, exposure definitions, and appropriate uncertainty estimates.\n")
         f.write("- Consider vehicle power and engine size when setting policy terms.\n")
         f.write("- Future work: Add binary classification to predict claim occurrence.\n")
 
