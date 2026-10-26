@@ -21,7 +21,7 @@ import seaborn as sns
 # -----------------------------
 # 🔧 Configuration
 # -----------------------------
-DATA_PATH = "Data/MachineLearningRating_v3.txt"
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
@@ -188,7 +188,7 @@ def generate_report(results):
         f.write("### June 17, 2025 | Firaol Driba\n\n")
 
         f.write("## 📊 Executive Summary\n")
-        f.write("Built and evaluated three machine learning models to predict the appropriate **TotalPremium**.\n\n")
+        f.write("Compared models for historical recorded premium. This target is not equivalent to actuarially adequate premium and results remain exploratory until independently reproduced.\n\n")
 
         f.write("## 📈 Model Evaluation Results\n\n")
         f.write("| Model | RMSE | R² |\n|-------|------|-----|\n")
@@ -203,7 +203,7 @@ def generate_report(results):
         f.write("- Kilowatts\n")
 
         f.write("\n## 📌 Business Recommendations\n")
-        f.write("- Use **XGBoost** for risk-based premium pricing due to superior accuracy.\n")
+        f.write("- Do not use historical premium predictions as a pricing recommendation without a separate actuarial methodology and independent validation.\n")
         f.write("- Adjust premiums for older vehicles and high-risk provinces like Gauteng.\n")
         f.write("- Consider vehicle power and engine size when setting coverage terms.\n")
         f.write("- Future work: Add binary classification to predict claim occurrence.\n")
