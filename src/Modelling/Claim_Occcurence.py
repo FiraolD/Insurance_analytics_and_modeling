@@ -13,6 +13,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
+from insurance_analytics.targets import add_claim_targets
 
 # -----------------------------
 # 🔧 Configuration
@@ -43,14 +44,9 @@ def clean_data(df):
     """Clean data by handling missing values and creating new features."""
     print("[INFO] Cleaning data...")
 
-    # Fix negative values
-    if 'TotalPremium' in df.columns:
-        df['TotalPremium'] = df['TotalPremium'].abs()
-    if 'TotalClaims' in df.columns:
-        df['TotalClaims'] = df['TotalClaims'].abs()
-
-    # Create binary flag for claim occurrence
-    df['HadClaim'] = df['TotalClaims'].apply(lambda x: 1 if x > 0 else 0) # Corrected HadClaim creation
+    # Keep the source outcome intact and classify missingness explicitly.
+    # The source data contract must be verified before missing means no claim.
+    df = add_claim_targets(df, missing_claims="unknown")
 
     # 🔍 Print some sample rows to debug
     print("\n🔍 Sample HadClaim values:")
@@ -59,10 +55,7 @@ def clean_data(df):
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
 
-    # Fill numerical columns safely
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col] = df[col].fillna(df[col].median())
+    # Do not impute numeric columns here: target labels must remain untouched.
 
     # Create derived features
     if 'RegistrationYear' in df.columns:
