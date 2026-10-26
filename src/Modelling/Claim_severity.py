@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
@@ -15,15 +16,17 @@ from sklearn.metrics import mean_squared_error, r2_score
 import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
+from insurance_analytics.targets import add_claim_targets
 
 # -----------------------------
 # 🔧 Configuration
 # -----------------------------
-DATA_PATH = "Data/MachineLearningRating_v3.txt"
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
+MISSING_CLAIMS_POLICY = os.getenv("INSURANCE_MISSING_CLAIMS_POLICY", "unknown")
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
-REPORT_FILE = "Reports/task4/Claim_severity.md
+REPORT_FILE = "Reports/task4/Claim_severity.md"
 
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -43,34 +46,21 @@ def clean_data(df):
     """Clean data by handling missing values and creating new features."""
     print("[INFO] Cleaning data...")
 
-    # Fix negative values
-    if 'TotalPremium' in df.columns:
-        df['TotalPremium'] = df['TotalPremium'].abs()
-    if 'TotalClaims' in df.columns:
-        df['TotalClaims'] = df['TotalClaims'].abs()
+    # Normalize source numeric columns without imputing outcomes.
+    for column in ('TotalPremium', 'TotalClaims'):
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors='coerce')
 
-    # Fill categorical columns safely
+    # Derive outcomes before any feature cleaning; never impute the target.
+    df = add_claim_targets(df, missing_claims=MISSING_CLAIMS_POLICY)
+
+    # Preserve signed financial values. Learned feature imputation is fitted
+    # on training data only in the preprocessing pipeline.
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
 
-    # Fill numerical columns safely
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col] = df[col].fillna(df[col].median())
-
-    # Calculate Loss Ratio
-    df['LossRatio'] = np.where(
-        df['TotalPremium'] > 0,
-        df['TotalClaims'] / df['TotalPremium'],
-        np.nan
-    )
-
-    # Binary claim indicator
-    df['HadClaim'] = df['TotalClaims'].notnull().astype(int)
-
-    # Create derived features
-    if 'RegistrationYear' in df.columns:
-        df['VehicleAge'] = 2025 - df['RegistrationYear']
+    # Do not create a second claim label from raw missingness. The canonical
+    # nullable outcome is HadClaim, produced by add_claim_targets.
 
     print("[OK] Data cleaned and prepared.")
     return df
@@ -89,9 +79,9 @@ def prepare_features(df):
         'SumInsured', 'CoverType'
     ]
 
-    target = 'TotalClaims'
+    target = 'ClaimSeverityTarget'
 
-    # Only keep rows where target is not null
+    # Severity is defined only for positive, observed claim amounts.
     df_model = df[df[target].notnull()].copy()
 
     X = df_model[features]
@@ -102,8 +92,8 @@ def prepare_features(df):
 
     # Define preprocessor
     preprocessor = ColumnTransformer([
-        ('num', StandardScaler(), X.select_dtypes(include=np.number).columns),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), X.select_dtypes(include='object').columns)
+        ('num', Pipeline([('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())]), X.select_dtypes(include=np.number).columns),
+        ('cat', Pipeline([('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')), ('onehot', OneHotEncoder(handle_unknown='ignore'))]), X.select_dtypes(include='object').columns)
     ])
 
     X_train_processed = preprocessor.fit_transform(X_train)
@@ -196,18 +186,11 @@ def generate_report(results):
             f.write(f"| {res['model']} | {res['RMSE']:.2f} | {res['R²']:.4f} |\n")
 
         f.write("\n## 🧠 Key Insights from SHAP Analysis\n")
-        f.write("- Top 5 features influencing predicted claim amount:\n")
-        f.write("  - Vehicle age\n")
-        f.write("  - Province (e.g., Gauteng)\n")
-        f.write("  - Make (e.g., Toyota vs Mercedes-Benz)\n")
-        f.write("  - Cubic capacity\n")
-        f.write("  - Kilowatts\n")
+        f.write("- Review the generated SHAP plots for model-specific feature attributions. These describe model behaviour and do not establish causality.\n")
 
         f.write("\n## 📌 Business Recommendations\n")
-        f.write("- Use **XGBoost** for risk-based premium pricing due to superior accuracy.\n")
-        f.write("- Adjust premiums for older vehicles and high-risk provinces like Gauteng.\n")
-        f.write("- Consider vehicle power and engine size when setting policy terms.\n")
-        f.write("- Future work: Add binary classification to predict claim occurrence.\n")
+        f.write("- Treat model comparisons as exploratory until reproduced with verified targets and leakage-safe evaluation.\n")
+        f.write("- Do not use severity predictions as standalone pricing recommendations; actuarial pricing also requires validated frequency, exposure, expenses, and other assumptions.\n")
 
     print(f"[OK] Report saved to {REPORT_FILE}")
 
@@ -222,13 +205,12 @@ def main():
     # Prepare features
     X_train, X_test, y_train, y_test, feature_names = prepare_features(df)
 
-    # Convert sparse arrays if needed
+    # Keep SHAP input bounded; densifying the full one-hot matrix can exhaust memory.
+    X_test_sample = X_test[:500]
     try:
-        X_train_dense = X_train.toarray()
-        X_test_dense = X_test.toarray()
-    except:
-        X_train_dense = X_train
-        X_test_dense = X_test
+        X_test_dense = X_test_sample.toarray()
+    except AttributeError:
+        X_test_dense = X_test_sample
 
     # DataFrame for SHAP interpretation
     X_test_df = pd.DataFrame(X_test_dense, columns=feature_names)

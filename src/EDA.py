@@ -6,6 +6,10 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
+from insurance_analytics.targets import add_claim_targets, summarize_claim_amounts
+
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
+MISSING_CLAIMS_POLICY = os.getenv("INSURANCE_MISSING_CLAIMS_POLICY", "unknown")
 
 # --------------------------
 # 🔧 DATA LOADING & CLEANING
@@ -18,29 +22,19 @@ def load_data(filepath):
     return df
 
 def handle_missing_values(df):
-    """Fill or drop missing values."""
-    print("[INFO] Handling missing values...")
-
-    cat_cols = df.select_dtypes(include='object').columns
-    df[cat_cols] = df[cat_cols].fillna('Unknown')
-
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col].fillna(df[col].median(), inplace=True)
-
-    print("[OK] Missing values handled.")
+    """Report missingness without silently imputing outcomes or features."""
+    missing = df.isna().sum().sort_values(ascending=False)
+    print("[INFO] Columns with the most missing values:")
+    print(missing[missing.gt(0)].head(20).to_string() or "No missing values found.")
     return df
 
 def fix_negative_values(df):
-    """Fix negative TotalPremium and TotalClaims."""
-    print("[INFO] Fixing negative premium and claim values...")
-
-    if 'TotalPremium' in df.columns:
-        df['TotalPremium'] = df['TotalPremium'].abs()
-    if 'TotalClaims' in df.columns:
-        df['TotalClaims'] = df['TotalClaims'].abs()
-
-    print("[OK] Negative values fixed.")
+    """Report negative financial values without changing their accounting sign."""
+    for column in ("TotalPremium", "TotalClaims"):
+        if column in df.columns:
+            values = pd.to_numeric(df[column], errors="coerce")
+            count = int(values.lt(0).sum())
+            print(f"[DATA QUALITY] {column}: {count} negative values retained for review.")
     return df
 
 def convert_to_categorical(df):
@@ -57,39 +51,34 @@ def convert_to_categorical(df):
     return df
 
 def calculate_loss_ratio(df):
-    """Calculate Loss Ratio = Claims / Premium."""
-    print("[INFO] Calculating loss ratio...")
-
-    if 'TotalPremium' in df.columns and 'TotalClaims' in df.columns:
-        df['LossRatio'] = np.where(
-            df['TotalPremium'] > 0,
-            df['TotalClaims'] / df['TotalPremium'],
-            np.nan
-        )
-        print("[OK] Loss ratio calculated.")
-    else:
-        print("[ERROR] Required columns missing for loss ratio calculation.")
-
+    """Calculate loss ratio only where premium and claim amount are defined."""
+    premium = pd.to_numeric(df["TotalPremium"], errors="coerce")
+    claims = df["ClaimAmountObserved"].copy()
+    if MISSING_CLAIMS_POLICY == "no_claim":
+        claims = claims.fillna(0)
+    df["LossRatio"] = (claims / premium).where(premium.gt(0))
     return df
 
 def clean_and_prepare(df):
-    """Run all cleaning steps in sequence."""
+    """Normalize source fields and preserve unknown outcomes for analysis."""
+    df = df.copy()
+    raw_claim_quality = summarize_claim_amounts(df, "TotalClaims")
+    for column in ("TotalPremium", "TotalClaims"):
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+
+    df = add_claim_targets(df, missing_claims=MISSING_CLAIMS_POLICY)
     df = handle_missing_values(df)
     df = fix_negative_values(df)
     df = convert_to_categorical(df)
+
+    if "TransactionMonth" in df.columns:
+        df["TransactionMonth"] = pd.to_datetime(df["TransactionMonth"], errors="coerce")
+
     df = calculate_loss_ratio(df)
-
-    # Convert TransactionMonth to datetime
-    if 'TransactionMonth' in df.columns:
-        df['TransactionMonth'] = pd.to_datetime(df['TransactionMonth'], errors='coerce')
-
-    # Drop rows with critical missing values
-    essential_cols = ["TransactionMonth", "Province", "VehicleType", "Gender",
-                    "make", "Model", "TotalPremium", "TotalClaims",
-                    "LossRatio", "CustomValueEstimate"]
-    df = df.dropna(subset=essential_cols)
-    print("[OK] Critical missing rows dropped for visualization.")
-
+    print("Claim amount data-quality summary:")
+    for key, value in raw_claim_quality.items():
+        print(f"  {key}: {value}")
     return df
 
 # -------------------
@@ -120,7 +109,8 @@ def plot_loss_ratio_by_gender(df):
     plt.show()
 
 def plot_claim_severity_by_make(df):
-    claim_severity = df.groupby("make")["TotalClaims"].mean().sort_values(ascending=False).head(15)
+    claim_rows = df.loc[df["ClaimSeverityTarget"].notna()]
+    claim_severity = claim_rows.groupby("make")["ClaimSeverityTarget"].mean().sort_values(ascending=False).head(15)
     plt.figure(figsize=(12, 5))
     sns.barplot(x=claim_severity.index, y=claim_severity.values)
     plt.title("Average Claim Severity by Vehicle Make (Top 15)")
@@ -130,8 +120,9 @@ def plot_claim_severity_by_make(df):
 
 def plot_premium_vs_claims(df):
     plt.figure(figsize=(8, 6))
-    sns.scatterplot(data=df, x="TotalPremium", y="TotalClaims", hue="VehicleType", alpha=0.7)
-    plt.title("Premium vs Claims")
+    plot_data = df.loc[df["TotalPremium"].gt(0) & df["ClaimAmountObserved"].gt(0)]
+    sns.scatterplot(data=plot_data, x="TotalPremium", y="ClaimAmountObserved", hue="VehicleType", alpha=0.7)
+    plt.title("Premium vs Positive Observed Claims")
     plt.xscale("log")
     plt.yscale("log")
     plt.tight_layout()
@@ -160,16 +151,20 @@ def plot_monthly_trend(df):
         print("[ERROR] TransactionMonth column missing for monthly trend.")
         return
 
+    if MISSING_CLAIMS_POLICY == "unknown":
+        print("[WARN] Monthly claim totals are skipped because missing claim amounts remain unknown.")
+        return
+
     df['month'] = df['TransactionMonth'].dt.to_period("M").astype(str)
 
     monthly = df.groupby("month").agg({
-        "TotalClaims": "sum",
+        "ClaimAmountObserved": "sum",
         "LossRatio": "mean",
         "PolicyID": "nunique"
     }).rename(columns={"PolicyID": "UniquePolicies"})
 
     plt.figure(figsize=(12, 6))
-    sns.lineplot(data=monthly, x=monthly.index, y="TotalClaims", label="Total Claims")
+    sns.lineplot(data=monthly, x=monthly.index, y="ClaimAmountObserved", label="Claim Amounts")
     sns.lineplot(data=monthly, x=monthly.index, y="LossRatio", label="Avg Loss Ratio")
     plt.xticks(rotation=45)
     plt.title("Monthly Claim Frequency and Severity")
@@ -177,7 +172,8 @@ def plot_monthly_trend(df):
     plt.show()
 
 def plot_top_bottom_makes(df):
-    top_makes = df.groupby("make")["TotalClaims"].sum().sort_values(ascending=False)
+    claim_rows = df.loc[df["ClaimSeverityTarget"].notna()]
+    top_makes = claim_rows.groupby("make")["ClaimSeverityTarget"].sum().sort_values(ascending=False)
 
     plt.figure(figsize=(12, 5))
     top_makes.head(10).plot(kind='bar', color='tomato')
@@ -199,7 +195,7 @@ def plot_top_bottom_makes(df):
 
 def main():
     # Define path
-    file_path = 'D:/PYTHON PROJECTS/KIAM PROJECTS/Insurance_analytics_and_modeling/Data/MachineLearningRating_v3.txt'
+    file_path = DATA_PATH
 
     # Load and clean data
     df = load_data(file_path)

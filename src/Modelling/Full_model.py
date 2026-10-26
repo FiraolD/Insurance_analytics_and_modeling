@@ -8,19 +8,22 @@ from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from xgboost import XGBRegressor, XGBClassifier
-from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, classification_report
+from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, classification_report, average_precision_score, roc_auc_score, precision_score, recall_score
 
 import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
+from insurance_analytics.targets import add_claim_targets
 
 # -----------------------------
 # 🔧 Configuration
 # -----------------------------
-DATA_PATH = "Data/MachineLearningRating_v3.txt"
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
+MISSING_CLAIMS_POLICY = os.getenv("INSURANCE_MISSING_CLAIMS_POLICY", "unknown")
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
@@ -44,34 +47,22 @@ def clean_data(df):
     """Clean data by handling missing values and creating new features."""
     print("[INFO] Cleaning data...")
 
-    # Fix negative values
-    if 'TotalPremium' in df.columns:
-        df['TotalPremium'] = df['TotalPremium'].abs()
-    if 'TotalClaims' in df.columns:
-        df['TotalClaims'] = df['TotalClaims'].abs()
+    # Normalize financial source columns without filling missing outcomes.
+    for column in ('TotalPremium', 'TotalClaims'):
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors='coerce')
 
-    # Fill categorical columns
+    # Construct claim outcomes before any feature cleaning or imputation.
+    df = add_claim_targets(df, missing_claims=MISSING_CLAIMS_POLICY)
+
+    # Preserve signed financial values for review; do not silently apply abs().
+    # Fill categorical columns only; learned numeric imputation is fitted
+    # on training data only in each task-specific pipeline.
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
 
-    # Fill numerical columns
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col] = df[col].fillna(df[col].median())
-
-    # Create binary flag for claim occurrence
-    df['HadClaim'] = df['TotalClaims'].notnull().astype(int)
-
-    # Calculate LossRatio
-    df['LossRatio'] = np.where(
-        df['TotalPremium'] > 0,
-        df['TotalClaims'] / df['TotalPremium'],
-        np.nan
-    )
-
-    # Create derived features
-    if 'RegistrationYear' in df.columns:
-        df['VehicleAge'] = 2025 - df['RegistrationYear']
+    # Outcome-derived ratios are omitted from the feature frame to reduce the
+    # risk of accidental target leakage in later modelling changes.
 
     print("[OK] Data cleaned and prepared.")
     return df
@@ -80,8 +71,8 @@ def clean_data(df):
 # 🧱 Build Train/Test Splits
 # -----------------------------
 def prepare_features(df):
-    """Select relevant features and build train/test sets."""
-    print("\n[INFO] Preparing features for modeling...")
+    """Build task-specific splits and fit each preprocessor on training data only."""
+    print("\n[INFO] Preparing task-specific datasets...")
 
     base_features = [
         'make', 'Model', 'Province', 'PostalCode',
@@ -89,48 +80,65 @@ def prepare_features(df):
         'RegistrationYear', 'kilowatts', 'cubiccapacity',
         'SumInsured', 'CoverType'
     ]
+    missing_features = [column for column in base_features if column not in df.columns]
+    if missing_features:
+        raise KeyError(f"Required model features are missing: {missing_features}")
 
-    # Define target variables
-    y_severity = df[df['TotalClaims'].notnull()]['TotalClaims']
-    X_severity = df[df['TotalClaims'].notnull()][base_features]
+    def split_and_transform(X, y, task_name, stratify=False):
+        if len(y) < 2:
+            raise ValueError(f"Not enough eligible observations for {task_name}.")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42,
+            stratify=y if stratify else None
+        )
+        numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+        categorical_features = X.select_dtypes(include=['object', 'category', 'string']).columns.tolist()
+        preprocessor = ColumnTransformer([
+            ('num', Pipeline([
+                ('imputer', SimpleImputer(strategy='median')),
+                ('scaler', StandardScaler()),
+            ]), numeric_features),
+            ('cat', Pipeline([
+                ('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')),
+                ('onehot', OneHotEncoder(handle_unknown='ignore', min_frequency=10)),
+            ]), categorical_features),
+        ])
+        X_train_processed = preprocessor.fit_transform(X_train)
+        X_test_processed = preprocessor.transform(X_test)
+        encoded_cat_names = preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_features)
+        feature_names = numeric_features + list(encoded_cat_names)
+        print(f"[OK] {task_name}: train={X_train_processed.shape}, test={X_test_processed.shape}")
+        return X_train_processed, X_test_processed, y_train, y_test, feature_names
 
-    y_premium = df['TotalPremium']
-    X_premium = df[base_features]
+    severity_mask = df['ClaimSeverityTarget'].notna()
+    severity_data = df.loc[severity_mask]
+    severity = split_and_transform(
+        severity_data[base_features], severity_data['ClaimSeverityTarget'], 'severity'
+    )
 
-    y_claim = df['HadClaim']
-    X_claim = df[base_features]
+    premium_target = pd.to_numeric(df['TotalPremium'], errors='coerce')
+    premium_mask = premium_target.notna() & premium_target.ge(0)
+    premium_data = df.loc[premium_mask]
+    premium = split_and_transform(
+        premium_data[base_features], premium_target.loc[premium_mask], 'historical premium'
+    )
 
-    # Encode and split datasets
-    preprocessor = ColumnTransformer([
-        ('num', StandardScaler(), X_severity.select_dtypes(include=np.number).columns),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), X_severity.select_dtypes(include='object').columns)
-    ])
+    claim_mask = df['HadClaim'].notna()
+    claim_data = df.loc[claim_mask]
+    claim_y = claim_data['HadClaim'].astype(int)
+    if claim_y.nunique() < 2:
+        print(
+            "[WARN] Skipping claim-occurrence model: fewer than two verified classes. "
+            "Verify the source data dictionary before interpreting missing claim "
+            "amounts as no-claim outcomes."
+        )
+        claim = None
+    else:
+        claim = split_and_transform(
+            claim_data[base_features], claim_y, 'claim occurrence', stratify=True
+        )
 
-    # Process and split for each model
-    X_sev_processed = preprocessor.fit_transform(X_severity)
-    X_pre_processed = preprocessor.transform(X_premium)
-    X_cla_processed = preprocessor.transform(X_claim)
-
-    X_sev_train, X_sev_test, y_sev_train, y_sev_test = train_test_split(
-        X_sev_processed, y_severity, test_size=0.2, random_state=42)
-
-    X_pre_train, X_pre_test, y_pre_train, y_pre_test = train_test_split(
-        X_pre_processed, y_premium, test_size=0.2, random_state=42)
-
-    X_cla_train, X_cla_test, y_cla_train, y_cla_test = train_test_split(
-        X_cla_processed, y_claim, test_size=0.2, random_state=42)
-
-    print(f"[OK] Feature shapes:")
-    print(f"Severity: {X_sev_train.shape}, Premium: {X_pre_train.shape}, Claim: {X_cla_train.shape}")
-
-    return {
-        'severity': (X_sev_train, X_sev_test, y_sev_train, y_sev_test),
-        'premium': (X_pre_train, X_pre_test, y_pre_train, y_pre_test),
-        'claim': (X_cla_train, X_cla_test, y_cla_train, y_cla_test),
-        'preprocessor': preprocessor,
-        'feature_names': list(X_severity.select_dtypes(include=np.number).columns) +
-                    list(preprocessor.named_transformers_['cat'].get_feature_names_out())
-    }
+    return {'severity': severity, 'premium': premium, 'claim': claim}
 
 # -----------------------------
 # 🚀 Train and Evaluate Models
@@ -167,7 +175,7 @@ def train_severity_model(X_train, X_test, y_train, y_test, feature_names):
         plot_predictions(y_test, y_pred, name, "claim_severity", PLOT_DIR)
 
     best_model = max(results, key=lambda x: x['r2'])
-    interpret_model'], X_test, feature_names, "claim_severity")
+    interpret_model(best_model, X_test, feature_names, "claim_severity")
 
     return results
 
@@ -228,22 +236,32 @@ def train_claim_classifier(X_train, X_test, y_train, y_test, feature_names):
         print(f"\n🧪 Training {name}...")
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
+        y_probability = model.predict_proba(X_test)[:, 1]
 
         acc = accuracy_score(y_test, y_pred)
-        report = classification_report(y_test, y_pred)
+        average_precision = average_precision_score(y_test, y_probability)
+        roc_auc = roc_auc_score(y_test, y_probability)
+        precision = precision_score(y_test, y_pred, zero_division=0)
+        recall = recall_score(y_test, y_pred, zero_division=0)
+        report = classification_report(y_test, y_pred, zero_division=0)
 
         print(f"✅ {name} trained.")
-        print(f"Accuracy: {acc:.4f}")
+        print(f"Accuracy: {acc:.4f}; average precision: {average_precision:.4f}; ROC AUC: {roc_auc:.4f}")
+        print(f"Precision at threshold 0.5: {precision:.4f}; recall: {recall:.4f}")
         print(report)
 
         results.append({
             'model_name': f'Claim_Occurrence_{name}',
             'model': model,
             'accuracy': acc,
+            'average_precision': average_precision,
+            'roc_auc': roc_auc,
+            'precision': precision,
+            'recall': recall,
             'report': report
         })
 
-    best_model = max(results, key=lambda x: x['accuracy'])
+    best_model = max(results, key=lambda x: x['average_precision'])
     interpret_with_shap(best_model['model'], X_test, feature_names, "claim_occurrence")
 
     return results
@@ -271,10 +289,12 @@ def interpret_model(model_info, X_test, feature_names, context):
     print(f"\n🧠 Interpreting model ({context})...")
 
     # Check if X_test is sparse and convert to dense
+    # Keep interpretation bounded to avoid densifying a huge one-hot matrix.
+    X_sample = X_test[:500]
     try:
-        X_test_dense = X_test.toarray()
-    except:
-        X_test_dense = X_test  # Already dense
+        X_test_dense = X_sample.toarray()
+    except AttributeError:
+        X_test_dense = X_sample
 
     explainer = shap.Explainer(model_info["model"], X_test_dense)
     shap_values = explainer(X_test_dense)
@@ -314,24 +334,24 @@ def generate_final_report(sev_results, pre_results, cla_results):
         for res in pre_results:
             f.write(f"  - {res['model_name']}: RMSE={res['rmse']:.2f}, R²={res['r2']:.4f}\n")
         f.write("- **Claim Occurrence Classification**\n")
+        if not cla_results:
+            f.write("  - Skipped: insufficient verified outcome classes under the configured missing-value policy.\n")
         for res in cla_results:
-            f.write(f"  - {res['model_name']}: Accuracy={res['accuracy']:.4f}\n")
+            f.write(
+                f"  - {res['model_name']}: average_precision={res['average_precision']:.4f}, "
+                f"ROC_AUC={res['roc_auc']:.4f}, precision@0.5={res['precision']:.4f}, "
+                f"recall@0.5={res['recall']:.4f}\n"
+            )
             f.write(res['report'] + "\n")
 
         f.write("\n## 🧠 Top Features Influencing Predictions\n")
         f.write("From SHAP analysis:\n")
-        f.write("  - Vehicle age\n")
-        f.write("  - Province (e.g., Gauteng)\n")
-        f.write("  - Make (e.g., Toyota vs Mercedes-Benz)\n")
-        f.write("  - Cubic capacity\n")
-        f.write("  - Kilowatts\n")
+        f.write("  - See generated SHAP plots for task-specific attributions; these are not causal effects.\n")
 
         f.write("\n## 📌 Business Recommendations\n")
-        f.write("- Use **XGBoost** for claim severity prediction due to superior accuracy.\n")
-        f.write("- Adjust premiums for older vehicles and high-risk provinces like Gauteng.\n")
-        f.write("- Consider vehicle power and engine size when setting policy terms.\n")
-        f.write("- Build a **risk-based pricing engine** combining predicted claim probability and severity.\n")
-        f.write("- Future work: Add binary classification to predict claim occurrence.\n")
+        f.write("- Treat model comparisons as exploratory until reproduced with verified targets and appropriate holdout metrics.\n")
+        f.write("- Historical premium prediction is not an actuarial indication of adequate premium.\n")
+        f.write("- Any expected-cost estimate must align claim frequency, conditional severity, exposure, currency, and observation unit.\n")
 
     print(f"[OK] Report saved to {REPORT_FILE}")
 
@@ -345,12 +365,15 @@ def main():
 
     # Prepare features for each task
     feature_sets = prepare_features(df)
-    feature_names = feature_sets['feature_names']
 
-    # Train models
-    sev_results = train_severity_model(*feature_sets['severity'], feature_names)
-    pre_results = train_premium_model(*feature_sets['premium'], feature_names)
-    cla_results = train_claim_classifier(*feature_sets['claim'], feature_names)
+    # Train each target with its own leakage-safe preprocessing pipeline.
+    sev_results = train_severity_model(*feature_sets['severity'])
+    pre_results = train_premium_model(*feature_sets['premium'])
+    cla_results = (
+        train_claim_classifier(*feature_sets['claim'])
+        if feature_sets['claim'] is not None
+        else []
+    )
 
     # Generate final report
     generate_final_report(sev_results, pre_results, cla_results)

@@ -6,25 +6,29 @@ import os
 from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 from sklearn.linear_model import LogisticRegression # Import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score # Import roc_auc_score
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, average_precision_score, precision_score, recall_score
 import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
+from insurance_analytics.targets import add_claim_targets
 
 # -----------------------------
 # 🔧 Configuration
 # -----------------------------
 # Update DATA_PATH to the correct absolute path
-DATA_PATH = "Data/MachineLearningRating_v3.txt"
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
+MISSING_CLAIMS_POLICY = os.getenv("INSURANCE_MISSING_CLAIMS_POLICY", "unknown")
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
 REPORT_FILE = "Reports/task4/claim_occurrence_report.md"
 
-#os.makedirs(PLOT_DIR, exist_ok=True)
+os.makedirs(PLOT_DIR, exist_ok=True)
 
 # -----------------------------
 # 📥 Load Dataset
@@ -43,14 +47,9 @@ def clean_data(df):
     """Clean data by handling missing values and creating new features."""
     print("[INFO] Cleaning data...")
 
-    # Fix negative values
-    if 'TotalPremium' in df.columns:
-        df['TotalPremium'] = df['TotalPremium'].abs()
-    if 'TotalClaims' in df.columns:
-        df['TotalClaims'] = df['TotalClaims'].abs()
-
-    # Create binary flag for claim occurrence
-    df['HadClaim'] = df['TotalClaims'].apply(lambda x: 1 if x > 0 else 0) # Corrected HadClaim creation
+    # Keep the source outcome intact and classify missingness explicitly.
+    # The source data contract must be verified before missing means no claim.
+    df = add_claim_targets(df, missing_claims=MISSING_CLAIMS_POLICY)
 
     # 🔍 Print some sample rows to debug
     print("\n🔍 Sample HadClaim values:")
@@ -59,14 +58,7 @@ def clean_data(df):
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
 
-    # Fill numerical columns safely
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col] = df[col].fillna(df[col].median())
-
-    # Create derived features
-    if 'RegistrationYear' in df.columns:
-        df['VehicleAge'] = 2025 - df['RegistrationYear']
+    # Do not impute numeric columns here: target labels must remain untouched.
 
     print("[OK] Data cleaned and prepared.")
     return df
@@ -75,7 +67,7 @@ def clean_data(df):
 # 🧱 Build Train/Test Splits with Balancing
 # -----------------------------
 def prepare_features(df):
-    """Select relevant features and build train/test sets."""
+    """Split raw observations first, then fit preprocessing on training rows."""
     print("\n[INFO] Preparing features for modeling...")
 
     base_features = [
@@ -84,39 +76,46 @@ def prepare_features(df):
         'RegistrationYear', 'kilowatts', 'cubiccapacity',
         'SumInsured', 'CoverType'
     ]
-
     target = 'HadClaim'
-    X = df[base_features]
-    y = df[target]
+    eligible = df.loc[df[target].notna()].copy()
+    missing_features = [column for column in base_features if column not in eligible.columns]
+    if missing_features:
+        raise KeyError(f"Required model features are missing: {missing_features}")
+    X = eligible[base_features]
+    y = eligible[target].astype(int)
 
-    # ⚠️ Check if both classes exist
-    print("\n🔢 Class distribution in HadClaim:")
-    print(y.value_counts())
-
+    print("\n[INFO] Verified claim-label distribution:")
+    print(y.value_counts(dropna=False))
     if y.nunique() < 2:
-        raise ValueError("Only one class found in target variable. Need both 0 and 1 for classification.")
+        raise ValueError(
+            "Only one verified claim class is available. Confirm the source-data "
+            "meaning of missing TotalClaims before changing the missing-label policy."
+        )
 
-    # Encode categorical variables
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+    categorical_features = X.select_dtypes(include=['object', 'category', 'string']).columns.tolist()
     preprocessor = ColumnTransformer([
-        ('num', StandardScaler(), X.select_dtypes(include=np.number).columns),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), X.select_dtypes(include='object').columns)
+        ('num', Pipeline([
+            ('imputer', SimpleImputer(strategy='median')),
+            ('scaler', StandardScaler(with_mean=False)),
+        ]), numeric_features),
+        ('cat', Pipeline([
+            ('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')),
+            ('onehot', OneHotEncoder(handle_unknown='ignore', min_frequency=10)),
+        ]), categorical_features),
     ])
 
-    X_processed = preprocessor.fit_transform(X)
+    X_train_processed = preprocessor.fit_transform(X_train)
+    X_test_processed = preprocessor.transform(X_test)
+    cat_pipeline = preprocessor.named_transformers_['cat']
+    encoded_cat_names = cat_pipeline.named_steps['onehot'].get_feature_names_out(categorical_features)
+    feature_names = numeric_features + list(encoded_cat_names)
 
-    # Stratified train-test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_processed, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    try:
-        encoded_cat_names = preprocessor.named_transformers_['cat'].get_feature_names_out()
-        feature_names = list(X.select_dtypes(include=np.number).columns) + list(encoded_cat_names)
-    except:
-        feature_names = list(X.columns)
-
-    print(f"[OK] Feature shapes after split: {X_train.shape}, {X_test.shape}")
-    return X_train, X_test, y_train, y_test, feature_names
+    print(f"[OK] Feature shapes after split: {X_train_processed.shape}, {X_test_processed.shape}")
+    return X_train_processed, X_test_processed, y_train, y_test, feature_names
 # -----------------------------
 # 🔀 Balance Classes Using RandomUnderSampler
 # -----------------------------
@@ -146,12 +145,17 @@ def train_and_evaluate(model, name, X_train, X_test, y_train, y_test):
     y_pred_proba = model.predict_proba(X_test)[:, 1] # Get probabilities for ROC AUC
 
     acc = accuracy_score(y_test, y_pred)
-    report = classification_report(y_test, y_pred)
-    roc_auc = roc_auc_score(y_test, y_pred_proba) # Calculate ROC AUC
+    report = classification_report(y_test, y_pred, zero_division=0)
+    roc_auc = roc_auc_score(y_test, y_pred_proba)
+    average_precision = average_precision_score(y_test, y_pred_proba)
+    precision = precision_score(y_test, y_pred, zero_division=0)
+    recall = recall_score(y_test, y_pred, zero_division=0)
 
     print(f"✅ {name} trained.")
     print(f"Accuracy: {acc:.4f}")
-    print(f"ROC AUC: {roc_auc:.4f}") # Print ROC AUC
+    print(f"ROC AUC: {roc_auc:.4f}")
+    print(f"Average precision (PR-AUC summary): {average_precision:.4f}")
+    print(f"Precision at threshold 0.5: {precision:.4f}; recall: {recall:.4f}")
     print(report)
 
     # Confusion matrix plot
@@ -170,7 +174,10 @@ def train_and_evaluate(model, name, X_train, X_test, y_train, y_test):
         "model": model,
         "accuracy": acc,
         "report": report,
-        "roc_auc": roc_auc # Include ROC AUC in results
+        "roc_auc": roc_auc,
+        "average_precision": average_precision,
+        "precision": precision,
+        "recall": recall
     }
 
 # -----------------------------
@@ -180,10 +187,13 @@ def interpret_model(model_info, X_test, feature_names):
     """Interpret model using SHAP values."""
     print("\n🧠 Interpreting model with SHAP...")
 
+    # Explain a bounded sample only; densifying a full one-hot test matrix can
+    # exhaust memory on this high-cardinality insurance dataset.
+    X_sample = X_test[:500]
     try:
-        X_test_dense = X_test.toarray()
-    except:
-        X_test_dense = X_test
+        X_test_dense = X_sample.toarray()
+    except AttributeError:
+        X_test_dense = X_sample
 
     explainer = shap.TreeExplainer(model_info["model"])
     shap_values = explainer.shap_values(X_test_dense, check_additivity=False)
@@ -224,29 +234,26 @@ def generate_report(results):
         f.write("### June 17, 2025 | Firaol Driba\n\n")
 
         f.write("## 📊 Executive Summary\n")
-        f.write("Built and evaluated two classification models to predict whether a policy will result in at least one claim.\n\n")
+        f.write("Models are evaluated on an untouched holdout set. Precision and recall are shown at threshold 0.5; threshold selection and probability calibration require separate validation.\n\n")
 
         f.write("## 🧪 Key Findings\n")
         for res in results:
             f.write(f"### {res['model_name']}\n")
             f.write(f"- Accuracy: {res['accuracy']:.4f}\n")
-            f.write(f"- ROC AUC: {res['roc_auc']:.4f}\n") # Include ROC AUC in report
+            f.write(f"- ROC AUC: {res['roc_auc']:.4f}\n")
+            f.write(f"- Average precision: {res['average_precision']:.4f}\n")
+            f.write(f"- Precision at threshold 0.5: {res['precision']:.4f}\n")
+            f.write(f"- Recall at threshold 0.5: {res['recall']:.4f}\n")
             f.write("```\n")
             f.write(res['report'])
             f.write("\n```\n\n")
 
         f.write("\n## 🧠 Top Features Influencing Claim Probability\n")
-        f.write("- Vehicle age\n")
-        f.write("- Province (e.g., Gauteng)\n")
-        f.write("- Make (e.g., Toyota vs Mercedes-Benz)\n")
-        f.write("- Cubic capacity\n")
-        f.write("- Kilowatts\n")
+        f.write("- Review the generated SHAP plots for model-specific feature attributions; importance does not imply causality.\n")
 
         f.write("\n## 📌 Business Recommendations\n")
-        f.write("- Use classification model to identify high-risk profiles before underwriting\n")
-        f.write("- Adjust premiums for vehicles with higher predicted risk\n")
-        f.write("- Recommend tracking devices or alarms for high-risk customers\n")
-        f.write("- Combine with severity model to define overall risk profile\n")
+        f.write("- Treat outputs as exploratory until target semantics, threshold selection, calibration, fairness, and out-of-time performance are validated.\n")
+        f.write("- Do not make underwriting or pricing decisions from this model without independent governance and actuarial review.\n")
 
     print(f"[OK] Report saved to {REPORT_FILE}")
 

@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression
 from xgboost import XGBRegressor
 from sklearn.ensemble import RandomForestRegressor
@@ -20,11 +21,13 @@ import seaborn as sns
 # -----------------------------
 # 🔧 Configuration
 # -----------------------------
-DATA_PATH = "Data/MachineLearningRating_v3.txt"
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
 REPORT_FILE = "Reports/task4/premium_prediction_report.md"
+
+os.makedirs(PLOT_DIR, exist_ok=True)
 
 
 # -----------------------------
@@ -43,24 +46,10 @@ def clean_data(df):
     """Clean data by handling missing values and creating new features."""
     print("[INFO] Cleaning data...")
 
-    # Fix negative values
-    if 'TotalPremium' in df.columns:
-        df['TotalPremium'] = df['TotalPremium'].abs()
-    if 'TotalClaims' in df.columns:
-        df['TotalClaims'] = df['TotalClaims'].abs()
-
-    # Fill categorical columns safely
+    # Preserve signed financial amounts; negative values need accounting review.
+    # Fill categorical fields only. Learned imputation belongs after splitting.
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
-
-    # Fill numerical columns safely
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col] = df[col].fillna(df[col].median())
-
-    # Create derived features
-    if 'RegistrationYear' in df.columns:
-        df['VehicleAge'] = 2025 - df['RegistrationYear']
 
     print("[OK] Data cleaned and prepared.")
     return df
@@ -69,7 +58,7 @@ def clean_data(df):
 # 🧱 Build Train/Test Splits
 # -----------------------------
 def prepare_features(df):
-    """Select relevant features and build train/test sets."""
+    """Split observations before fitting any learned preprocessing."""
     print("\n[INFO] Preparing features for modeling...")
 
     base_features = [
@@ -78,32 +67,44 @@ def prepare_features(df):
         'RegistrationYear', 'kilowatts', 'cubiccapacity',
         'SumInsured', 'CoverType'
     ]
+    missing_features = [column for column in base_features if column not in df.columns]
+    if missing_features:
+        raise KeyError(f"Required model features are missing: {missing_features}")
 
-    target = 'TotalPremium'
-    X = df[base_features]
-    y = df[target]
+    target = pd.to_numeric(df['TotalPremium'], errors='coerce')
+    valid_target = target.notna() & target.ge(0)
+    excluded = int((~valid_target).sum())
+    if excluded:
+        print(f"[WARN] Excluding {excluded} rows with missing or negative premium targets; investigate negative amounts separately.")
 
-    # Encode categorical variables
+    X = df.loc[valid_target, base_features].copy()
+    y = target.loc[valid_target]
+    if len(y) < 2:
+        raise ValueError("Not enough valid observed premium targets to train and evaluate a model.")
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+    categorical_features = X.select_dtypes(include=['object', 'category', 'string']).columns.tolist()
     preprocessor = ColumnTransformer([
-        ('num', StandardScaler(), X.select_dtypes(include=np.number).columns),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), X.select_dtypes(include='object').columns)
+        ('num', Pipeline([
+            ('imputer', SimpleImputer(strategy='median')),
+            ('scaler', StandardScaler()),
+        ]), numeric_features),
+        ('cat', Pipeline([
+            ('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')),
+            ('onehot', OneHotEncoder(handle_unknown='ignore', min_frequency=10)),
+        ]), categorical_features),
     ])
 
-    X_processed = preprocessor.fit_transform(X)
+    X_train_processed = preprocessor.fit_transform(X_train)
+    X_test_processed = preprocessor.transform(X_test)
+    encoded_cat_names = preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_features)
+    feature_names = numeric_features + list(encoded_cat_names)
 
-    # Stratified train-test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_processed, y, test_size=0.2, random_state=42
-    )
-
-    try:
-        encoded_cat_names = preprocessor.named_transformers_['cat'].get_feature_names_out()
-        feature_names = list(X.select_dtypes(include=np.number).columns) + list(encoded_cat_names)
-    except:
-        feature_names = list(X.columns)
-
-    print(f"[OK] Feature shapes after split: {X_train.shape}, {X_test.shape}")
-    return X_train, X_test, y_train, y_test, feature_names
+    print(f"[OK] Feature shapes after split: {X_train_processed.shape}, {X_test_processed.shape}")
+    return X_train_processed, X_test_processed, y_train, y_test, feature_names
 
 # -----------------------------
 # 🚀 Train and Evaluate Models
@@ -146,11 +147,12 @@ def interpret_model(model_info, X_test, feature_names):
     """Interpret model using SHAP values."""
     print("\n🧠 Interpreting model with SHAP...")
 
-    # Convert sparse arrays if needed
+    # Explain a bounded sample only; a full one-hot test matrix may be large.
+    X_sample = X_test[:500]
     try:
-        X_test_dense = X_test.toarray()
-    except:
-        X_test_dense = X_test
+        X_test_dense = X_sample.toarray()
+    except AttributeError:
+        X_test_dense = X_sample
 
     explainer = shap.Explainer(model_info["model"], X_test_dense)
     shap_values = explainer(X_test_dense)
@@ -182,7 +184,7 @@ def generate_report(results):
         f.write("### June 17, 2025 | Firaol Driba\n\n")
 
         f.write("## 📊 Executive Summary\n")
-        f.write("Built and evaluated three machine learning models to predict the appropriate **TotalPremium**.\n\n")
+        f.write("Compared models for historical recorded premium. This target is not equivalent to actuarially adequate premium and results remain exploratory until independently reproduced.\n\n")
 
         f.write("## 📈 Model Evaluation Results\n\n")
         f.write("| Model | RMSE | R² |\n|-------|------|-----|\n")
@@ -190,14 +192,10 @@ def generate_report(results):
             f.write(f"| {res['model_name']} | {res['RMSE']:.2f} | {res['R²']:.4f} |\n")
 
         f.write("\n## 🧠 Top Features Influencing Premium\n")
-        f.write("- Vehicle age\n")
-        f.write("- Province (e.g., Gauteng)\n")
-        f.write("- Make (e.g., Toyota vs Mercedes-Benz)\n")
-        f.write("- Cubic capacity\n")
-        f.write("- Kilowatts\n")
+        f.write("- Review generated SHAP plots for model-specific attributions; importance does not establish causality.\n")
 
         f.write("\n## 📌 Business Recommendations\n")
-        f.write("- Use **XGBoost** for risk-based premium pricing due to superior accuracy.\n")
+        f.write("- Do not use historical premium predictions as a pricing recommendation without a separate actuarial methodology and independent validation.\n")
         f.write("- Adjust premiums for older vehicles and high-risk provinces like Gauteng.\n")
         f.write("- Consider vehicle power and engine size when setting coverage terms.\n")
         f.write("- Future work: Add binary classification to predict claim occurrence.\n")

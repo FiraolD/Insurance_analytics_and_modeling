@@ -1,144 +1,138 @@
-🚗 Insurance Risk Analytics & Predictive Modeling 
-AlphaCare Insurance Solutions — South Africa 
-June 11–17, 2025 
-Author: Firaol Driba 
-Facilitators: Mahlet, Kerod, Rediet, Rehmet 
-________________________________________
-🔍 Project Overview 
-This project aims to analyze historical car insurance data from AlphaCare Insurance Solutions (ACIS) to: 
-•	Understand risk patterns across provinces, vehicle types, and policyholder profiles
-•	Statistically test key hypotheses about claim frequency and severity
-•	Build predictive models to support risk-based premium pricing 
-•	Deliver actionable insights that help ACIS refine its marketing and underwriting strategy
-The dataset contains over 1 million rows of policies with information on: 
-•	Policyholder details
-•	Vehicle specifications
-•	Location features
-•	Coverage plan info
-•	Premiums and claims history (Feb 2014 – Aug 2015)
-________________________________________
-🎯 Business Objective 
-Help AlphaCare Insurance Solutions identify low-risk customer segments and build a dynamic pricing engine based on data-driven insights. 
-________________________________________
+# Insurance Risk Analytics & Predictive Modelling
 
-📁 Folder Structure 
-1
-Insurance-Risk-Analytics/
-├── data/
-│ └── raw/
-│ └── MachineLearningRating_v3.txt.dvc # Versioned via DVC
-├── Reports/
-│ └── task3/
-│ └── task4/
-│ ├── plots/ # SHAP and model plots
-│ └── reports/
-├── src/
-│ ├── eda/
-│ │ └── eda.py
-│ ├── hypothesis_testing/
-│ │ └── hypothesis_tester.py
-│ └── modeling/
-│ ├── claim_occurrence_classifier.py
-│ ├── claim_severity_model.py
-│ └── premium_prediction_model.py
-├── .gitignore
-├── .dvcignore
-└── requirements.txt
-________________________________________
-🧪 Tasks Completed 
+A Python project for exploratory analysis, statistical testing, and predictive
+modelling using historical motor-insurance data associated with AlphaCare
+Insurance Solutions (ACIS), South Africa.
 
-Task 1 : Git Setup + EDA	✔️ Loaded and explored the dataset<br>✔️ Identified missing values and outliers<br>✔️ Visualized loss ratio by province and make<br>✔️ Created branch task-1 and pushed daily
-Task 2 : Data Version Control (DVC)	✔️ Set up DVC for tracking large files<br>✔️ Moved dataset out of Git<br>✔️ Pushed versioned file to remote storage<br>✔️ Updated .gitignore and .dvcignore
-| Task 3 : A/B Hypothesis Testing | ✔️ Tested regional, zipcode, and gender risk differences<br>✔️ Used t-test, ANOVA, and chi-squared tests<br>✔️ Visualized findings in business terms<br>✔️ Created markdown report and visualization folder | | Task 4 : Predictive Modeling | ✔️ Built regression models to predict claim severity and premiums<br>✔️ Built classification model to predict claim occurrence<br>✔️ Used Random Forest, XGBoost, Linear Regression<br>✔️ Interpreted top features using SHAP values<br>✔️ Wrote results into markdown reports | 
-________________________________________
-🚀 How to Run This Project 
-1. Clone Repository 
-bash
-1
-2
-git clone https://github.com/FiraolD/Insurance_analytics_and_modeling.git 
-cd Insurance_analytics_and_modeling
-2. Install Dependencies 
-bash
-1
-pip install -r requirements.txt
-3. Pull Data via DVC 
-bash
-1
-dvc pull
-4. Run Scripts 
-🔍 EDA 
-bash
-1
-python src/eda.py
-🧪 Hypothesis Testing 
-bash
-1
-python src /hypothesis_tester.py
-🤖 Claim Severity Prediction 
-bash
-1
-python src/modelling/claim_severity.py
+> **Status: reliability improvements in progress.** Existing scripts and
+> previously reported model metrics are exploratory. They should not be
+> interpreted as validated pricing recommendations until the target definitions,
+> data assumptions, preprocessing, and evaluation results have been reproduced.
 
-💰 Premium Prediction 
-bash
-1
-python src/modelling/premium_prediction_model.py
-🧮 Claim Occurrence Classifier 
-bash
-1
-python src/modelling/claim_occurrence_classifier.py
-________________________________________
-📊 Key Findings 
-From EDA: 
-•	Only 2,793 policies had actual claims (out of 1 million)
-•	Toyota dominates market share but shows moderate claim severity
-•	Gauteng has highest average loss ratio among all provinces
-•	Many fields have high missingness:
-o	CustomValueEstimate: ~780k missing
-o	TotalClaims: ~997k missing
-From Hypothesis Testing: 
+## Objectives
 
-H₀: No risk difference across provinces	❌ Fail to reject (p=0.059)
-H₀: No profit margin difference between zipcodes	⚠️ Not enough samples for conclusive test
-H₀: Significant risk difference between genders	❌ Fail to reject (p=1.0)
-H₀: No significant risk difference between zipcodes	⚠️ Inconclusive due to low sample size
-From Predictive Modeling: 
+- Understand portfolio patterns across vehicle, policyholder, and geographic
+  attributes.
+- Evaluate statistical hypotheses with clearly stated assumptions.
+- Develop separate models for claim occurrence, claim severity, and historical
+  premium analysis.
+- Produce reproducible reports that distinguish evidence from assumptions.
+- Establish quality controls before using model results to support decisions.
 
-Linear Regression (Claim Severity)	2205.50	0.0045
-Random Forest (Claim Severity)	2407.74	-0.1864
-XGBoost (Claim Severity)	2291.27	-0.0744
-Linear Regression (Premium Prediction)	130.81	0.3796
-Random Forest (Premium Prediction)	88.08	0.7187
-XGBoost (Premium Prediction)	107.89	0.5779
-________________________________________
-📈 Business Recommendations 
-•	Use XGBoost for premium prediction due to better accuracy than linear models
-•	Adjust premiums for older vehicles and high-loss provinces like Gauteng 
-•	Consider engine power and cubic capacity when setting coverage terms
-•	Combine claim probability and severity models to define full risk profile
-•	Recommend installing tracking devices or alarms for high-risk cars
-________________________________________
-🧰 Requirements.txt 
-Make sure you have these packages installed: 
-pandas
-numpy
-matplotlib
-seaborn
-scikit-learn
-xgboost
-shap
-imbalanced-learn
-dvc
-Install via: 
-bash
-1
-pip install -r requirements.txt
-________________________________________
-📌 Final Notes 
-You're very close to completing everything successfully! 
-This README helps: 
-•	Stakeholders understand the purpose and structure
-•	Reviewers see how tasks were executed
-•	Team members reproduce your work easily
+## Dataset and responsible use
 
+The existing project documentation describes historical South African motor
+insurance data covering February 2014 through August 2015. Confirm the exact
+data dictionary, observation unit, currency, exposure period, and permitted use
+before drawing conclusions. The raw dataset is not distributed in this
+repository; do not commit policyholder-level records or confidential exports.
+
+The data and findings are not representative of Awash Insurance or the
+Ethiopian market without independent validation on appropriate local data.
+
+## Repository map
+
+- `src/Modelling/`: existing modelling scripts, under reliability review.
+- `src/EDA.py`: existing exploratory analysis script.
+- `src/Hypothesis Tester.py`: existing hypothesis-testing script.
+- `src/insurance_analytics/`: reusable components introduced during the
+  reliability refactor.
+- `tests/`: automated checks for core data and target logic.
+- `docs/data-and-target-contract.md`: target semantics, leakage controls, and
+  data-handling rules.
+- `Reports/`: historical analysis artifacts; figures and metrics require
+  reproduction before being treated as validated.
+
+File names and run instructions in the original scripts are being reconciled
+as part of the refactor. Do not assume every legacy script currently runs
+end-to-end.
+
+## Requirements
+
+Use Python 3.10 or newer. Create and activate a virtual environment, then run:
+
+```bash
+python -m venv .venv
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# macOS / Linux:
+# source .venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+For the existing model scripts and data-versioning workflow, install the
+additional modelling dependencies:
+
+```bash
+python -m pip install -e ".[modelling,dev]"
+```
+
+The `requirements.txt` file is also provided for a conventional dependency
+installation. Dependency ranges are declared, but a fully resolved lockfile
+has not yet been generated.
+
+## Run quality checks
+
+```bash
+python -m pytest
+```
+
+The initial tests cover claim-target construction. They do not yet certify that
+all legacy analysis scripts or the full modelling workflow execute correctly.
+
+## Critical target-definition rules
+
+- A positive observed `TotalClaims` amount is treated as a claim.
+- An observed zero is treated as no claim.
+- A missing amount is **unknown by default**, not automatically zero.
+- A negative amount is flagged for investigation rather than converted to an
+  absolute value.
+- Claim-severity training uses positive, observed claim amounts only.
+- Target fields and target-derived metrics must not leak into model predictors.
+- Fit imputers, encoders, scalers, feature selectors, and resampling steps only
+  on training data, using a pipeline wherever possible.
+
+These rules are implemented in
+`insurance_analytics.targets.add_claim_targets`. The missing-value policy may
+only be changed after verifying the authoritative source-data convention.
+Details are documented in `docs/data-and-target-contract.md`.
+
+The legacy modelling scripts accept `INSURANCE_DATA_PATH` to override the dataset
+location. They also accept `INSURANCE_MISSING_CLAIMS_POLICY=unknown` (the default)
+or `INSURANCE_MISSING_CLAIMS_POLICY=no_claim`. Use `no_claim` only after the
+source data dictionary confirms that missing claim amounts mean no claim.
+
+## Modelling principles
+
+1. Establish a transparent baseline before tuning complex algorithms.
+2. Split data before fitting any learned preprocessing.
+3. Use a time-aware holdout when the intended task is future-risk prediction.
+4. For rare claim outcomes, report prevalence, precision, recall, PR-AUC,
+   threshold-specific confusion matrices, and calibration where appropriate;
+   accuracy alone is inadequate.
+5. Evaluate severity only on the correctly defined claim population.
+6. Historical premium prediction is not equivalent to actuarially adequate
+   premium calculation.
+7. Preserve negative financial values for investigation until their accounting
+   meaning is understood; do not silently rewrite them.
+8. Record dataset versions, configuration, random seeds, metrics, and known
+   limitations with each reproducible experiment.
+
+## Development workflow
+
+Work on a feature branch. Keep changes small and testable, run quality checks,
+and review the diff before merging. Raw data, secrets, and credentials must
+remain outside version control. The main branch should only receive reviewed,
+tested changes.
+
+## Current work
+
+The reliability refactor is addressing, in order:
+
+1. Environment and repository consistency.
+2. Data-quality checks and verified target definitions.
+3. Leakage-safe, reusable model pipelines.
+4. Baseline comparisons and appropriate evaluation metrics.
+5. Reproducible reports and actionable, appropriately qualified findings.
