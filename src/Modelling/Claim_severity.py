@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
@@ -97,8 +98,8 @@ def prepare_features(df):
 
     # Define preprocessor
     preprocessor = ColumnTransformer([
-        ('num', StandardScaler(), X.select_dtypes(include=np.number).columns),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), X.select_dtypes(include='object').columns)
+        ('num', Pipeline([('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())]), X.select_dtypes(include=np.number).columns),
+        ('cat', Pipeline([('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')), ('onehot', OneHotEncoder(handle_unknown='ignore'))]), X.select_dtypes(include='object').columns)
     ])
 
     X_train_processed = preprocessor.fit_transform(X_train)
