@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 MissingClaimsPolicy = Literal["unknown", "no_claim"]
@@ -56,3 +57,32 @@ def add_claim_targets(
     result["HadClaim"] = occurrence
     result["ClaimSeverityTarget"] = severity
     return result
+
+
+def summarize_claim_amounts(
+    frame: pd.DataFrame,
+    claims_col: str = "TotalClaims",
+) -> dict[str, int]:
+    """Summarize claim-amount quality without assigning outcome semantics.
+
+    Missing and non-numeric source values are reported separately. Negative and
+    non-finite values are counted for investigation, not silently corrected.
+    """
+    if claims_col not in frame.columns:
+        raise KeyError(f"Required claims column {claims_col!r} is missing.")
+
+    raw = frame[claims_col]
+    numeric = pd.to_numeric(raw, errors="coerce")
+    source_missing = raw.isna()
+    unparseable = raw.notna() & numeric.isna()
+    finite = numeric.notna() & np.isfinite(numeric)
+
+    return {
+        "total_rows": int(len(frame)),
+        "source_missing": int(source_missing.sum()),
+        "unparseable": int(unparseable.sum()),
+        "observed_zero": int((finite & numeric.eq(0)).sum()),
+        "observed_positive": int((finite & numeric.gt(0)).sum()),
+        "observed_negative": int((finite & numeric.lt(0)).sum()),
+        "non_finite": int((numeric.notna() & ~np.isfinite(numeric)).sum()),
+    }
