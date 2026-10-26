@@ -6,6 +6,8 @@ import os
 from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 from sklearn.linear_model import LogisticRegression # Import LogisticRegression
@@ -68,7 +70,7 @@ def clean_data(df):
 # 🧱 Build Train/Test Splits with Balancing
 # -----------------------------
 def prepare_features(df):
-    """Select relevant features and build train/test sets."""
+    """Split raw observations first, then fit preprocessing on training rows."""
     print("\n[INFO] Preparing features for modeling...")
 
     base_features = [
@@ -77,39 +79,46 @@ def prepare_features(df):
         'RegistrationYear', 'kilowatts', 'cubiccapacity',
         'SumInsured', 'CoverType'
     ]
-
     target = 'HadClaim'
-    X = df[base_features]
-    y = df[target]
+    eligible = df.loc[df[target].notna()].copy()
+    missing_features = [column for column in base_features if column not in eligible.columns]
+    if missing_features:
+        raise KeyError(f"Required model features are missing: {missing_features}")
+    X = eligible[base_features]
+    y = eligible[target].astype(int)
 
-    # ⚠️ Check if both classes exist
-    print("\n🔢 Class distribution in HadClaim:")
-    print(y.value_counts())
-
+    print("\n[INFO] Verified claim-label distribution:")
+    print(y.value_counts(dropna=False))
     if y.nunique() < 2:
-        raise ValueError("Only one class found in target variable. Need both 0 and 1 for classification.")
+        raise ValueError(
+            "Only one verified claim class is available. Confirm the source-data "
+            "meaning of missing TotalClaims before changing the missing-label policy."
+        )
 
-    # Encode categorical variables
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+    categorical_features = X.select_dtypes(include=['object', 'category', 'string']).columns.tolist()
     preprocessor = ColumnTransformer([
-        ('num', StandardScaler(), X.select_dtypes(include=np.number).columns),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), X.select_dtypes(include='object').columns)
+        ('num', Pipeline([
+            ('imputer', SimpleImputer(strategy='median')),
+            ('scaler', StandardScaler(with_mean=False)),
+        ]), numeric_features),
+        ('cat', Pipeline([
+            ('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')),
+            ('onehot', OneHotEncoder(handle_unknown='ignore', min_frequency=10)),
+        ]), categorical_features),
     ])
 
-    X_processed = preprocessor.fit_transform(X)
+    X_train_processed = preprocessor.fit_transform(X_train)
+    X_test_processed = preprocessor.transform(X_test)
+    cat_pipeline = preprocessor.named_transformers_['cat']
+    encoded_cat_names = cat_pipeline.named_steps['onehot'].get_feature_names_out(categorical_features)
+    feature_names = numeric_features + list(encoded_cat_names)
 
-    # Stratified train-test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_processed, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    try:
-        encoded_cat_names = preprocessor.named_transformers_['cat'].get_feature_names_out()
-        feature_names = list(X.select_dtypes(include=np.number).columns) + list(encoded_cat_names)
-    except:
-        feature_names = list(X.columns)
-
-    print(f"[OK] Feature shapes after split: {X_train.shape}, {X_test.shape}")
-    return X_train, X_test, y_train, y_test, feature_names
+    print(f"[OK] Feature shapes after split: {X_train_processed.shape}, {X_test_processed.shape}")
+    return X_train_processed, X_test_processed, y_train, y_test, feature_names
 # -----------------------------
 # 🔀 Balance Classes Using RandomUnderSampler
 # -----------------------------
