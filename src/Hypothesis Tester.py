@@ -204,12 +204,16 @@ def generate_report(df):
 
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         f.write("# 🧪 Task 3: A/B Hypothesis Testing\n\n")
-        f.write("Statistical analysis of car insurance risk drivers:\n\n")
+        f.write("Exploratory analysis of observed outcomes. Unknown claim labels are excluded from claim-occurrence tests; missing claims are only treated as zero when explicitly configured and supported by the source data dictionary. P-values are unadjusted for multiple testing and should not be treated as causal evidence.\n\n")
 
         for res in results:
             f.write(f"## {res['name']}\n")
             f.write(res['message'] + "\n\n")
 
+        f.write("## Interpretation and Limitations\n")
+        f.write("- These are exploratory comparisons, not causal estimates or underwriting rules.\n")
+        f.write("- Review sample sizes, data quality, test assumptions, and multiple-comparison effects before interpreting p-values.\n")
+        f.write("- Risk differences should be evaluated with exposure-aware measures and uncertainty intervals where feasible.\n\n")
         f.write("## ✅ Business Recommendations\n")
         any_rejected = False
         for res in results:
