@@ -11,7 +11,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 from sklearn.linear_model import LogisticRegression # Import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score # Import roc_auc_score
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, average_precision_score, precision_score, recall_score
 import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -27,7 +27,7 @@ SEP = '|'
 PLOT_DIR = "Reports/task4/plots"
 REPORT_FILE = "Reports/task4/claim_occurrence_report.md"
 
-#os.makedirs(PLOT_DIR, exist_ok=True)
+os.makedirs(PLOT_DIR, exist_ok=True)
 
 # -----------------------------
 # 📥 Load Dataset
@@ -148,12 +148,17 @@ def train_and_evaluate(model, name, X_train, X_test, y_train, y_test):
     y_pred_proba = model.predict_proba(X_test)[:, 1] # Get probabilities for ROC AUC
 
     acc = accuracy_score(y_test, y_pred)
-    report = classification_report(y_test, y_pred)
-    roc_auc = roc_auc_score(y_test, y_pred_proba) # Calculate ROC AUC
+    report = classification_report(y_test, y_pred, zero_division=0)
+    roc_auc = roc_auc_score(y_test, y_pred_proba)
+    average_precision = average_precision_score(y_test, y_pred_proba)
+    precision = precision_score(y_test, y_pred, zero_division=0)
+    recall = recall_score(y_test, y_pred, zero_division=0)
 
     print(f"✅ {name} trained.")
     print(f"Accuracy: {acc:.4f}")
-    print(f"ROC AUC: {roc_auc:.4f}") # Print ROC AUC
+    print(f"ROC AUC: {roc_auc:.4f}")
+    print(f"Average precision (PR-AUC summary): {average_precision:.4f}")
+    print(f"Precision at threshold 0.5: {precision:.4f}; recall: {recall:.4f}")
     print(report)
 
     # Confusion matrix plot
@@ -232,7 +237,10 @@ def generate_report(results):
         for res in results:
             f.write(f"### {res['model_name']}\n")
             f.write(f"- Accuracy: {res['accuracy']:.4f}\n")
-            f.write(f"- ROC AUC: {res['roc_auc']:.4f}\n") # Include ROC AUC in report
+            f.write(f"- ROC AUC: {res['roc_auc']:.4f}\n")
+            f.write(f"- Average precision: {res['average_precision']:.4f}\n")
+            f.write(f"- Precision at threshold 0.5: {res['precision']:.4f}\n")
+            f.write(f"- Recall at threshold 0.5: {res['recall']:.4f}\n")
             f.write("```\n")
             f.write(res['report'])
             f.write("\n```\n\n")
