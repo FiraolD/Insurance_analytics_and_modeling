@@ -99,6 +99,11 @@ These rules are implemented in
 only be changed after verifying the authoritative source-data convention.
 Details are documented in `docs/data-and-target-contract.md`.
 
+The legacy modelling scripts accept `INSURANCE_DATA_PATH` to override the dataset
+location. They also accept `INSURANCE_MISSING_CLAIMS_POLICY=unknown` (the default)
+or `INSURANCE_MISSING_CLAIMS_POLICY=no_claim`. Use `no_claim` only after the
+source data dictionary confirms that missing claim amounts mean no claim.
+
 ## Modelling principles
 
 1. Establish a transparent baseline before tuning complex algorithms.
