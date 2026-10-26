@@ -189,10 +189,8 @@ def generate_report(results):
         f.write("- Review the generated SHAP plots for model-specific feature attributions. These describe model behaviour and do not establish causality.\n")
 
         f.write("\n## 📌 Business Recommendations\n")
-        f.write("- Use **XGBoost** for risk-based premium pricing due to superior accuracy.\n")
-        f.write("- Treat all segment-level findings as hypotheses until reproduced with validated labels, exposure definitions, and appropriate uncertainty estimates.\n")
-        f.write("- Consider vehicle power and engine size when setting policy terms.\n")
-        f.write("- Future work: Add binary classification to predict claim occurrence.\n")
+        f.write("- Treat model comparisons as exploratory until reproduced with verified targets and leakage-safe evaluation.\n")
+        f.write("- Do not use severity predictions as standalone pricing recommendations; actuarial pricing also requires validated frequency, exposure, expenses, and other assumptions.\n")
 
     print(f"[OK] Report saved to {REPORT_FILE}")
 
