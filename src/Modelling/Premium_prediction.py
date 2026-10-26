@@ -51,10 +51,6 @@ def clean_data(df):
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
 
-    # Create derived features
-    if 'RegistrationYear' in df.columns:
-        df['VehicleAge'] = 2025 - df['RegistrationYear']
-
     print("[OK] Data cleaned and prepared.")
     return df
 
