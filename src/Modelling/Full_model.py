@@ -22,7 +22,8 @@ from insurance_analytics.targets import add_claim_targets
 # -----------------------------
 # 🔧 Configuration
 # -----------------------------
-DATA_PATH = "Data/MachineLearningRating_v3.txt"
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
+MISSING_CLAIMS_POLICY = os.getenv("INSURANCE_MISSING_CLAIMS_POLICY", "unknown")
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
@@ -52,11 +53,11 @@ def clean_data(df):
             df[column] = pd.to_numeric(df[column], errors='coerce')
 
     # Construct claim outcomes before any feature cleaning or imputation.
-    df = add_claim_targets(df, missing_claims="unknown")
+    df = add_claim_targets(df, missing_claims=MISSING_CLAIMS_POLICY)
 
     # Preserve signed financial values for review; do not silently apply abs().
-    # Fill categorical columns only. Learned numeric imputation belongs inside
-    # a train-only model pipeline and is being refactored separately.
+    # Fill categorical columns only; learned numeric imputation is fitted
+    # on training data only in each task-specific pipeline.
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
 
@@ -126,14 +127,16 @@ def prepare_features(df):
     claim_data = df.loc[claim_mask]
     claim_y = claim_data['HadClaim'].astype(int)
     if claim_y.nunique() < 2:
-        raise ValueError(
-            "Claim occurrence requires both verified classes. The current missing-claim "
-            "policy leaves fewer than two classes; verify the source data dictionary "
-            "before treating missing claim amounts as no-claim outcomes."
+        print(
+            "[WARN] Skipping claim-occurrence model: fewer than two verified classes. "
+            "Verify the source data dictionary before interpreting missing claim "
+            "amounts as no-claim outcomes."
         )
-    claim = split_and_transform(
-        claim_data[base_features], claim_y, 'claim occurrence', stratify=True
-    )
+        claim = None
+    else:
+        claim = split_and_transform(
+            claim_data[base_features], claim_y, 'claim occurrence', stratify=True
+        )
 
     return {'severity': severity, 'premium': premium, 'claim': claim}
 
@@ -321,6 +324,8 @@ def generate_final_report(sev_results, pre_results, cla_results):
         for res in pre_results:
             f.write(f"  - {res['model_name']}: RMSE={res['rmse']:.2f}, R²={res['r2']:.4f}\n")
         f.write("- **Claim Occurrence Classification**\n")
+        if not cla_results:
+            f.write("  - Skipped: insufficient verified outcome classes under the configured missing-value policy.\n")
         for res in cla_results:
             f.write(f"  - {res['model_name']}: Accuracy={res['accuracy']:.4f}\n")
             f.write(res['report'] + "\n")
@@ -356,7 +361,11 @@ def main():
     # Train each target with its own leakage-safe preprocessing pipeline.
     sev_results = train_severity_model(*feature_sets['severity'])
     pre_results = train_premium_model(*feature_sets['premium'])
-    cla_results = train_claim_classifier(*feature_sets['claim'])
+    cla_results = (
+        train_claim_classifier(*feature_sets['claim'])
+        if feature_sets['claim'] is not None
+        else []
+    )
 
     # Generate final report
     generate_final_report(sev_results, pre_results, cla_results)
