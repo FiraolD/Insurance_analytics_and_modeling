@@ -46,6 +46,11 @@ def clean_data(df):
     """Clean data by handling missing values and creating new features."""
     print("[INFO] Cleaning data...")
 
+    # Normalize financial source columns without filling missing outcomes.
+    for column in ('TotalPremium', 'TotalClaims'):
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors='coerce')
+
     # Construct claim outcomes before any feature cleaning or imputation.
     df = add_claim_targets(df, missing_claims="unknown")
 
@@ -55,16 +60,8 @@ def clean_data(df):
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
 
-    # Calculate LossRatio
-    df['LossRatio'] = np.where(
-        df['TotalPremium'] > 0,
-        df['TotalClaims'] / df['TotalPremium'],
-        np.nan
-    )
-
-    # Create derived features
-    if 'RegistrationYear' in df.columns:
-        df['VehicleAge'] = 2025 - df['RegistrationYear']
+    # Outcome-derived ratios are omitted from the feature frame to reduce the
+    # risk of accidental target leakage in later modelling changes.
 
     print("[OK] Data cleaned and prepared.")
     return df
