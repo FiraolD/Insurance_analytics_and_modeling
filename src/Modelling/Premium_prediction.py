@@ -196,11 +196,7 @@ def generate_report(results):
             f.write(f"| {res['model_name']} | {res['RMSE']:.2f} | {res['R²']:.4f} |\n")
 
         f.write("\n## 🧠 Top Features Influencing Premium\n")
-        f.write("- Vehicle age\n")
-        f.write("- Province (e.g., Gauteng)\n")
-        f.write("- Make (e.g., Toyota vs Mercedes-Benz)\n")
-        f.write("- Cubic capacity\n")
-        f.write("- Kilowatts\n")
+        f.write("- Review generated SHAP plots for model-specific attributions; importance does not establish causality.\n")
 
         f.write("\n## 📌 Business Recommendations\n")
         f.write("- Do not use historical premium predictions as a pricing recommendation without a separate actuarial methodology and independent validation.\n")
