@@ -16,6 +16,7 @@ from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, classi
 import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
+from insurance_analytics.targets import add_claim_targets
 
 # -----------------------------
 # 🔧 Configuration
@@ -44,23 +45,14 @@ def clean_data(df):
     """Clean data by handling missing values and creating new features."""
     print("[INFO] Cleaning data...")
 
-    # Fix negative values
-    if 'TotalPremium' in df.columns:
-        df['TotalPremium'] = df['TotalPremium'].abs()
-    if 'TotalClaims' in df.columns:
-        df['TotalClaims'] = df['TotalClaims'].abs()
+    # Construct claim outcomes before any feature cleaning or imputation.
+    df = add_claim_targets(df, missing_claims="unknown")
 
-    # Fill categorical columns
+    # Preserve signed financial values for review; do not silently apply abs().
+    # Fill categorical columns only. Learned numeric imputation belongs inside
+    # a train-only model pipeline and is being refactored separately.
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
-
-    # Fill numerical columns
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col] = df[col].fillna(df[col].median())
-
-    # Create binary flag for claim occurrence
-    df['HadClaim'] = df['TotalClaims'].notnull().astype(int)
 
     # Calculate LossRatio
     df['LossRatio'] = np.where(
@@ -91,14 +83,16 @@ def prepare_features(df):
     ]
 
     # Define target variables
-    y_severity = df[df['TotalClaims'].notnull()]['TotalClaims']
-    X_severity = df[df['TotalClaims'].notnull()][base_features]
+    severity_rows = df['ClaimSeverityTarget'].notna()
+    y_severity = df.loc[severity_rows, 'ClaimSeverityTarget']
+    X_severity = df.loc[severity_rows, base_features]
 
     y_premium = df['TotalPremium']
     X_premium = df[base_features]
 
-    y_claim = df['HadClaim']
-    X_claim = df[base_features]
+    claim_rows = df['HadClaim'].notna()
+    y_claim = df.loc[claim_rows, 'HadClaim'].astype(int)
+    X_claim = df.loc[claim_rows, base_features]
 
     # Encode and split datasets
     preprocessor = ColumnTransformer([
@@ -167,7 +161,7 @@ def train_severity_model(X_train, X_test, y_train, y_test, feature_names):
         plot_predictions(y_test, y_pred, name, "claim_severity", PLOT_DIR)
 
     best_model = max(results, key=lambda x: x['r2'])
-    interpret_model'], X_test, feature_names, "claim_severity")
+    interpret_model(best_model, X_test, feature_names, "claim_severity")
 
     return results
 
