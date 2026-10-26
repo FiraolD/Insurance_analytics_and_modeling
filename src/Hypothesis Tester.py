@@ -6,11 +6,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import ttest_ind, f_oneway, chi2_contingency
 import os
+from insurance_analytics.targets import add_claim_targets, summarize_claim_amounts
 
 # -----------------------------
 # 🔧 Configuration
 # -----------------------------
-DATA_PATH = "Data/MachineLearningRating_v3.txt"
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
+MISSING_CLAIMS_POLICY = os.getenv("INSURANCE_MISSING_CLAIMS_POLICY", "unknown")
 SEP = '|'
 
 PLOT_DIR = "Reports/task3-visualizations"
@@ -29,39 +31,34 @@ def load_data(path):
 # 🧹 Clean & Prepare Data
 # -----------------------------
 def clean_data(df):
-    """Clean data by handling missing values and calculating metrics."""
-    print("[INFO] Cleaning data...")
+    """Preserve source outcomes and calculate metrics only for defined rows."""
+    print("[INFO] Validating financial fields and claim outcomes...")
 
-    # Fix negative values
-    if 'TotalPremium' in df.columns:
-        df['TotalPremium'] = df['TotalPremium'].abs()
-    if 'TotalClaims' in df.columns:
-        df['TotalClaims'] = df['TotalClaims'].abs()
-        
-    # convert 'Transaction Month ' to datetime
-    if 'TransactionMonth' in df.columns:
-        df['TransactionMonth'] = pd.to_datetime(df['TransactionMonth'], errors='coerce', format='mixed')
+    df = df.copy()
+    for column in ("TotalPremium", "TotalClaims"):
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
 
-    # Fill categorical columns
-    cat_cols = df.select_dtypes(include='object').columns
-    df[cat_cols] = df[cat_cols].fillna('Unknown')
+    df = add_claim_targets(df, missing_claims=MISSING_CLAIMS_POLICY)
 
-    # Fill numerical columns
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col] = df[col].fillna(df[col].median())
+    if "TransactionMonth" in df.columns:
+        df["TransactionMonth"] = pd.to_datetime(
+            df["TransactionMonth"], errors="coerce", format="mixed"
+        )
 
-    # Calculate Loss Ratio
-    df['LossRatio'] = np.where(
-        df['TotalPremium'] > 0,
-        df['TotalClaims'] / df['TotalPremium'],
-        np.nan
+    claims_for_analysis = df["ClaimAmountObserved"].copy()
+    if MISSING_CLAIMS_POLICY == "no_claim":
+        claims_for_analysis = claims_for_analysis.fillna(0)
+
+    premium = pd.to_numeric(df["TotalPremium"], errors="coerce")
+    df["LossRatio"] = (claims_for_analysis / premium).where(premium.gt(0))
+    df["ProfitMargin"] = (premium - claims_for_analysis).where(
+        claims_for_analysis.notna() & premium.notna()
     )
 
-    # Binary claim indicator
-    df['HadClaim'] = df['TotalClaims'].notnull().astype(int)
-
-    print("[OK] Data cleaned and prepared.")
+    print("Claim amount data-quality summary:")
+    for key, value in summarize_claim_amounts(df, "TotalClaims").items():
+        print(f"  {key}: {value}")
     return df
 
 # -----------------------------
@@ -140,6 +137,8 @@ def test_zipcode_hypothesis(df):
     print("\n🧪 Hypothesis: Risk differs between zipcodes")
 
     top_zipcodes = df['PostalCode'].value_counts().index[:2]
+    if len(top_zipcodes) < 2:
+        return {"name": "Risk differs between zipcodes", "result": False, "message": "Insufficient distinct zipcodes for comparison."}
     zip_a = df[df['PostalCode'] == top_zipcodes[0]]['LossRatio'].dropna()
     zip_b = df[df['PostalCode'] == top_zipcodes[1]]['LossRatio'].dropna()
 
@@ -157,7 +156,10 @@ def test_gender_hypothesis(df):
     """Test if there's a significant risk difference between genders."""
     print("\n🧪 Hypothesis: Risk differs between genders")
 
-    contingency_table = pd.crosstab(df['Gender'], df['HadClaim'])
+    eligible = df.loc[df['HadClaim'].notna(), ['Gender', 'HadClaim']]
+    contingency_table = pd.crosstab(eligible['Gender'], eligible['HadClaim'])
+    if contingency_table.shape[0] < 2 or contingency_table.shape[1] < 2:
+        return {"name": "Risk differs between genders", "result": False, "message": "Insufficient verified categories or claim classes for chi-squared test."}
     chi2, p, _, _ = chi2_contingency(contingency_table)
 
     result = p < 0.05
@@ -169,9 +171,9 @@ def test_profit_zipcode_hypothesis(df):
     """Test if there's a significant profit margin difference between zipcodes."""
     print("\n🧪 Hypothesis: Profit margin differs between zipcodes")
 
-    df['ProfitMargin'] = df['TotalPremium'] - df['TotalClaims']
-
     top_zipcodes = df['PostalCode'].value_counts().index[:2]
+    if len(top_zipcodes) < 2:
+        return {"name": "Profit margin differs between zipcodes", "result": False, "message": "Insufficient distinct zipcodes for comparison."}
     zip_a = df[df['PostalCode'] == top_zipcodes[0]]['ProfitMargin'].dropna()
     zip_b = df[df['PostalCode'] == top_zipcodes[1]]['ProfitMargin'].dropna()
 
