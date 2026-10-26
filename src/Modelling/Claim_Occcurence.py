@@ -253,17 +253,11 @@ def generate_report(results):
             f.write("\n```\n\n")
 
         f.write("\n## 🧠 Top Features Influencing Claim Probability\n")
-        f.write("- Vehicle age\n")
-        f.write("- Province (e.g., Gauteng)\n")
-        f.write("- Make (e.g., Toyota vs Mercedes-Benz)\n")
-        f.write("- Cubic capacity\n")
-        f.write("- Kilowatts\n")
+        f.write("- Review the generated SHAP plots for model-specific feature attributions; importance does not imply causality.\n")
 
         f.write("\n## 📌 Business Recommendations\n")
-        f.write("- Use classification model to identify high-risk profiles before underwriting\n")
-        f.write("- Adjust premiums for vehicles with higher predicted risk\n")
-        f.write("- Recommend tracking devices or alarms for high-risk customers\n")
-        f.write("- Combine with severity model to define overall risk profile\n")
+        f.write("- Treat outputs as exploratory until target semantics, threshold selection, calibration, fairness, and out-of-time performance are validated.\n")
+        f.write("- Do not make underwriting or pricing decisions from this model without independent governance and actuarial review.\n")
 
     print(f"[OK] Report saved to {REPORT_FILE}")
 
