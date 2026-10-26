@@ -15,6 +15,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
+from insurance_analytics.targets import add_claim_targets
 
 # -----------------------------
 # 🔧 Configuration
@@ -23,7 +24,7 @@ DATA_PATH = "Data/MachineLearningRating_v3.txt"
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
-REPORT_FILE = "Reports/task4/Claim_severity.md
+REPORT_FILE = "Reports/task4/Claim_severity.md"
 
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -43,20 +44,14 @@ def clean_data(df):
     """Clean data by handling missing values and creating new features."""
     print("[INFO] Cleaning data...")
 
-    # Fix negative values
-    if 'TotalPremium' in df.columns:
-        df['TotalPremium'] = df['TotalPremium'].abs()
-    if 'TotalClaims' in df.columns:
-        df['TotalClaims'] = df['TotalClaims'].abs()
+    # Derive outcomes before any feature cleaning; never impute the target.
+    df = add_claim_targets(df, missing_claims="unknown")
 
-    # Fill categorical columns safely
+    # Preserve signed financial values for data-quality review.
+    # Fill categorical feature columns; numeric feature imputation is handled
+    # inside the train-only preprocessing pipeline in a subsequent refactor.
     cat_cols = df.select_dtypes(include='object').columns
     df[cat_cols] = df[cat_cols].fillna('Unknown')
-
-    # Fill numerical columns safely
-    num_cols = df.select_dtypes(include=np.number).columns
-    for col in num_cols:
-        df[col] = df[col].fillna(df[col].median())
 
     # Calculate Loss Ratio
     df['LossRatio'] = np.where(
@@ -89,9 +84,9 @@ def prepare_features(df):
         'SumInsured', 'CoverType'
     ]
 
-    target = 'TotalClaims'
+    target = 'ClaimSeverityTarget'
 
-    # Only keep rows where target is not null
+    # Severity is defined only for positive, observed claim amounts.
     df_model = df[df[target].notnull()].copy()
 
     X = df_model[features]
