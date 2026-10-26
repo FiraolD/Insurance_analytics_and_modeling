@@ -21,7 +21,8 @@ from insurance_analytics.targets import add_claim_targets
 # 🔧 Configuration
 # -----------------------------
 # Update DATA_PATH to the correct absolute path
-DATA_PATH = "Data/MachineLearningRating_v3.txt"
+DATA_PATH = os.getenv("INSURANCE_DATA_PATH", "Data/MachineLearningRating_v3.txt")
+MISSING_CLAIMS_POLICY = os.getenv("INSURANCE_MISSING_CLAIMS_POLICY", "unknown")
 SEP = '|'
 
 PLOT_DIR = "Reports/task4/plots"
@@ -48,7 +49,7 @@ def clean_data(df):
 
     # Keep the source outcome intact and classify missingness explicitly.
     # The source data contract must be verified before missing means no claim.
-    df = add_claim_targets(df, missing_claims="unknown")
+    df = add_claim_targets(df, missing_claims=MISSING_CLAIMS_POLICY)
 
     # 🔍 Print some sample rows to debug
     print("\n🔍 Sample HadClaim values:")
