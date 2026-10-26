@@ -35,6 +35,7 @@ def clean_data(df):
     print("[INFO] Validating financial fields and claim outcomes...")
 
     df = df.copy()
+    raw_claim_quality = summarize_claim_amounts(df, "TotalClaims")
     for column in ("TotalPremium", "TotalClaims"):
         if column in df.columns:
             df[column] = pd.to_numeric(df[column], errors="coerce")
@@ -57,7 +58,7 @@ def clean_data(df):
     )
 
     print("Claim amount data-quality summary:")
-    for key, value in summarize_claim_amounts(df, "TotalClaims").items():
+    for key, value in raw_claim_quality.items():
         print(f"  {key}: {value}")
     return df
 
