@@ -12,7 +12,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from xgboost import XGBRegressor, XGBClassifier
-from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, classification_report
+from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, classification_report, average_precision_score, roc_auc_score, precision_score, recall_score
 
 import shap
 import matplotlib.pyplot as plt
@@ -236,22 +236,32 @@ def train_claim_classifier(X_train, X_test, y_train, y_test, feature_names):
         print(f"\n🧪 Training {name}...")
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
+        y_probability = model.predict_proba(X_test)[:, 1]
 
         acc = accuracy_score(y_test, y_pred)
-        report = classification_report(y_test, y_pred)
+        average_precision = average_precision_score(y_test, y_probability)
+        roc_auc = roc_auc_score(y_test, y_probability)
+        precision = precision_score(y_test, y_pred, zero_division=0)
+        recall = recall_score(y_test, y_pred, zero_division=0)
+        report = classification_report(y_test, y_pred, zero_division=0)
 
         print(f"✅ {name} trained.")
-        print(f"Accuracy: {acc:.4f}")
+        print(f"Accuracy: {acc:.4f}; average precision: {average_precision:.4f}; ROC AUC: {roc_auc:.4f}")
+        print(f"Precision at threshold 0.5: {precision:.4f}; recall: {recall:.4f}")
         print(report)
 
         results.append({
             'model_name': f'Claim_Occurrence_{name}',
             'model': model,
             'accuracy': acc,
+            'average_precision': average_precision,
+            'roc_auc': roc_auc,
+            'precision': precision,
+            'recall': recall,
             'report': report
         })
 
-    best_model = max(results, key=lambda x: x['accuracy'])
+    best_model = max(results, key=lambda x: x['average_precision'])
     interpret_with_shap(best_model['model'], X_test, feature_names, "claim_occurrence")
 
     return results
@@ -327,7 +337,11 @@ def generate_final_report(sev_results, pre_results, cla_results):
         if not cla_results:
             f.write("  - Skipped: insufficient verified outcome classes under the configured missing-value policy.\n")
         for res in cla_results:
-            f.write(f"  - {res['model_name']}: Accuracy={res['accuracy']:.4f}\n")
+            f.write(
+                f"  - {res['model_name']}: average_precision={res['average_precision']:.4f}, "
+                f"ROC_AUC={res['roc_auc']:.4f}, precision@0.5={res['precision']:.4f}, "
+                f"recall@0.5={res['recall']:.4f}\n"
+            )
             f.write(res['report'] + "\n")
 
         f.write("\n## 🧠 Top Features Influencing Predictions\n")
