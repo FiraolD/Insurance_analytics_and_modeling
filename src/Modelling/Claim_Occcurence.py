@@ -177,7 +177,10 @@ def train_and_evaluate(model, name, X_train, X_test, y_train, y_test):
         "model": model,
         "accuracy": acc,
         "report": report,
-        "roc_auc": roc_auc # Include ROC AUC in results
+        "roc_auc": roc_auc,
+        "average_precision": average_precision,
+        "precision": precision,
+        "recall": recall
     }
 
 # -----------------------------
@@ -187,10 +190,13 @@ def interpret_model(model_info, X_test, feature_names):
     """Interpret model using SHAP values."""
     print("\n🧠 Interpreting model with SHAP...")
 
+    # Explain a bounded sample only; densifying a full one-hot test matrix can
+    # exhaust memory on this high-cardinality insurance dataset.
+    X_sample = X_test[:500]
     try:
-        X_test_dense = X_test.toarray()
-    except:
-        X_test_dense = X_test
+        X_test_dense = X_sample.toarray()
+    except AttributeError:
+        X_test_dense = X_sample
 
     explainer = shap.TreeExplainer(model_info["model"])
     shap_values = explainer.shap_values(X_test_dense, check_additivity=False)
@@ -231,7 +237,7 @@ def generate_report(results):
         f.write("### June 17, 2025 | Firaol Driba\n\n")
 
         f.write("## 📊 Executive Summary\n")
-        f.write("Built and evaluated two classification models to predict whether a policy will result in at least one claim.\n\n")
+        f.write("Models are evaluated on an untouched holdout set. Precision and recall are shown at threshold 0.5; threshold selection and probability calibration require separate validation.\n\n")
 
         f.write("## 🧪 Key Findings\n")
         for res in results:
