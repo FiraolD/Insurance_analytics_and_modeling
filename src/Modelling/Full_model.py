@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from xgboost import XGBRegressor, XGBClassifier
@@ -72,8 +73,8 @@ def clean_data(df):
 # 🧱 Build Train/Test Splits
 # -----------------------------
 def prepare_features(df):
-    """Select relevant features and build train/test sets."""
-    print("\n[INFO] Preparing features for modeling...")
+    """Build task-specific splits and fit each preprocessor on training data only."""
+    print("\n[INFO] Preparing task-specific datasets...")
 
     base_features = [
         'make', 'Model', 'Province', 'PostalCode',
@@ -81,50 +82,63 @@ def prepare_features(df):
         'RegistrationYear', 'kilowatts', 'cubiccapacity',
         'SumInsured', 'CoverType'
     ]
+    missing_features = [column for column in base_features if column not in df.columns]
+    if missing_features:
+        raise KeyError(f"Required model features are missing: {missing_features}")
 
-    # Define target variables
-    severity_rows = df['ClaimSeverityTarget'].notna()
-    y_severity = df.loc[severity_rows, 'ClaimSeverityTarget']
-    X_severity = df.loc[severity_rows, base_features]
+    def split_and_transform(X, y, task_name, stratify=False):
+        if len(y) < 2:
+            raise ValueError(f"Not enough eligible observations for {task_name}.")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42,
+            stratify=y if stratify else None
+        )
+        numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+        categorical_features = X.select_dtypes(include=['object', 'category', 'string']).columns.tolist()
+        preprocessor = ColumnTransformer([
+            ('num', Pipeline([
+                ('imputer', SimpleImputer(strategy='median')),
+                ('scaler', StandardScaler()),
+            ]), numeric_features),
+            ('cat', Pipeline([
+                ('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')),
+                ('onehot', OneHotEncoder(handle_unknown='ignore', min_frequency=10)),
+            ]), categorical_features),
+        ])
+        X_train_processed = preprocessor.fit_transform(X_train)
+        X_test_processed = preprocessor.transform(X_test)
+        encoded_cat_names = preprocessor.named_transformers_['cat'].named_steps['onehot'].get_feature_names_out(categorical_features)
+        feature_names = numeric_features + list(encoded_cat_names)
+        print(f"[OK] {task_name}: train={X_train_processed.shape}, test={X_test_processed.shape}")
+        return X_train_processed, X_test_processed, y_train, y_test, feature_names
 
-    y_premium = df['TotalPremium']
-    X_premium = df[base_features]
+    severity_mask = df['ClaimSeverityTarget'].notna()
+    severity_data = df.loc[severity_mask]
+    severity = split_and_transform(
+        severity_data[base_features], severity_data['ClaimSeverityTarget'], 'severity'
+    )
 
-    claim_rows = df['HadClaim'].notna()
-    y_claim = df.loc[claim_rows, 'HadClaim'].astype(int)
-    X_claim = df.loc[claim_rows, base_features]
+    premium_target = pd.to_numeric(df['TotalPremium'], errors='coerce')
+    premium_mask = premium_target.notna() & premium_target.ge(0)
+    premium_data = df.loc[premium_mask]
+    premium = split_and_transform(
+        premium_data[base_features], premium_target.loc[premium_mask], 'historical premium'
+    )
 
-    # Encode and split datasets
-    preprocessor = ColumnTransformer([
-        ('num', StandardScaler(), X_severity.select_dtypes(include=np.number).columns),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), X_severity.select_dtypes(include='object').columns)
-    ])
+    claim_mask = df['HadClaim'].notna()
+    claim_data = df.loc[claim_mask]
+    claim_y = claim_data['HadClaim'].astype(int)
+    if claim_y.nunique() < 2:
+        raise ValueError(
+            "Claim occurrence requires both verified classes. The current missing-claim "
+            "policy leaves fewer than two classes; verify the source data dictionary "
+            "before treating missing claim amounts as no-claim outcomes."
+        )
+    claim = split_and_transform(
+        claim_data[base_features], claim_y, 'claim occurrence', stratify=True
+    )
 
-    # Process and split for each model
-    X_sev_processed = preprocessor.fit_transform(X_severity)
-    X_pre_processed = preprocessor.transform(X_premium)
-    X_cla_processed = preprocessor.transform(X_claim)
-
-    X_sev_train, X_sev_test, y_sev_train, y_sev_test = train_test_split(
-        X_sev_processed, y_severity, test_size=0.2, random_state=42)
-
-    X_pre_train, X_pre_test, y_pre_train, y_pre_test = train_test_split(
-        X_pre_processed, y_premium, test_size=0.2, random_state=42)
-
-    X_cla_train, X_cla_test, y_cla_train, y_cla_test = train_test_split(
-        X_cla_processed, y_claim, test_size=0.2, random_state=42)
-
-    print(f"[OK] Feature shapes:")
-    print(f"Severity: {X_sev_train.shape}, Premium: {X_pre_train.shape}, Claim: {X_cla_train.shape}")
-
-    return {
-        'severity': (X_sev_train, X_sev_test, y_sev_train, y_sev_test),
-        'premium': (X_pre_train, X_pre_test, y_pre_train, y_pre_test),
-        'claim': (X_cla_train, X_cla_test, y_cla_train, y_cla_test),
-        'preprocessor': preprocessor,
-        'feature_names': list(X_severity.select_dtypes(include=np.number).columns) +
-                    list(preprocessor.named_transformers_['cat'].get_feature_names_out())
-    }
+    return {'severity': severity, 'premium': premium, 'claim': claim}
 
 # -----------------------------
 # 🚀 Train and Evaluate Models
@@ -265,10 +279,12 @@ def interpret_model(model_info, X_test, feature_names, context):
     print(f"\n🧠 Interpreting model ({context})...")
 
     # Check if X_test is sparse and convert to dense
+    # Keep interpretation bounded to avoid densifying a huge one-hot matrix.
+    X_sample = X_test[:500]
     try:
-        X_test_dense = X_test.toarray()
-    except:
-        X_test_dense = X_test  # Already dense
+        X_test_dense = X_sample.toarray()
+    except AttributeError:
+        X_test_dense = X_sample
 
     explainer = shap.Explainer(model_info["model"], X_test_dense)
     shap_values = explainer(X_test_dense)
@@ -339,12 +355,11 @@ def main():
 
     # Prepare features for each task
     feature_sets = prepare_features(df)
-    feature_names = feature_sets['feature_names']
 
-    # Train models
-    sev_results = train_severity_model(*feature_sets['severity'], feature_names)
-    pre_results = train_premium_model(*feature_sets['premium'], feature_names)
-    cla_results = train_claim_classifier(*feature_sets['claim'], feature_names)
+    # Train each target with its own leakage-safe preprocessing pipeline.
+    sev_results = train_severity_model(*feature_sets['severity'])
+    pre_results = train_premium_model(*feature_sets['premium'])
+    cla_results = train_claim_classifier(*feature_sets['claim'])
 
     # Generate final report
     generate_final_report(sev_results, pre_results, cla_results)
